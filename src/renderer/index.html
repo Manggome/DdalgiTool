@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:;"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>딸각기획</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <!-- 사이드바 -->
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark">🍓</span> 딸각기획</div>
+        <button id="newChat" class="new-btn">＋ 새 작업</button>
+
+        <div class="side-section grow">
+          <div class="side-label">최근 작업</div>
+          <div id="history" class="history"><div class="history-empty">아직 없음</div></div>
+        </div>
+
+        <div class="side-foot">
+          <div class="theme-row">
+            <span class="theme-label">테마</span>
+            <button class="theme-btn" data-theme="auto" title="시스템 설정 따라가기">자동</button>
+            <button class="theme-btn" data-theme="navy" title="네이비">네이비</button>
+            <button class="theme-btn" data-theme="dark" title="다크">다크</button>
+            <button class="theme-btn" data-theme="light" title="화이트">화이트</button>
+          </div>
+          <button id="connBtn" class="foot-btn">🔗 연동 설정</button>
+          <button id="guideBtn" class="foot-btn">📖 도구 지침 보기</button>
+          <button id="folderBtn" class="foot-btn">📁 작업 폴더 열기</button>
+          <button id="folderChangeBtn" class="foot-btn">🔀 작업 폴더 바꾸기</button>
+          <div class="foot-row">
+            <span id="statusDot" class="dot"></span>
+            <span id="status" class="status">준비 중…</span>
+          </div>
+          <div class="foot-row account">
+            <span class="acct-icon">👤</span>
+            <span id="acctLabel" class="status" title="">로그인 확인 중…</span>
+            <button id="authBtn" class="auth-btn hidden"></button>
+          </div>
+          <button id="usageBtn" class="foot-btn usage-btn">
+            <span class="usage-line">📊 <b id="usageCost">확인 중…</b> <span id="usageTok"></span></span>
+            <span id="usageCtx" class="usage-sub">컨텍스트 —</span>
+          </button>
+          <button id="versionLabel" class="version-text" title="패치노트 보기">버전 확인 중…</button>
+        </div>
+      </aside>
+
+      <!-- 가운데: 대화 -->
+      <main class="main">
+        <section id="setup" class="setup hidden">
+          <div class="setup-card">
+            <div class="setup-icon">🍓</div>
+            <h2>프로젝트 작업 폴더를 선택하세요</h2>
+            <p>
+              이 프로젝트의 대화 산출물(아카이브·시뮬레이터 HTML 등)이 저장될 폴더입니다.
+              유니티 프로젝트 폴더 또는 기획 작업 폴더를 지정하세요.
+            </p>
+            <button id="chooseBtn" class="primary">폴더 선택</button>
+            <div id="setupMsg" class="setup-msg"></div>
+          </div>
+        </section>
+
+        <div id="chat" class="chat hidden">
+          <div id="chatTools" class="chat-tools">
+            <button id="jumpBtn" class="ct-btn" title="내가 한 말만 모아 보기">🕘 내가 한 말</button>
+            <button id="findBtn" class="ct-btn" title="이 대화에서 찾기 (⌘F / Ctrl+F)">🔍 찾기</button>
+            <button id="panelBtn" class="ct-btn" title="HTML 패널 열기/닫기 (시뮬레이터·리포트)">🖥 HTML 패널</button>
+          </div>
+
+          <div id="findBar" class="find-bar hidden">
+            <input id="findInput" type="text" spellcheck="false" placeholder="이 대화에서 찾기…" />
+            <span id="findCount" class="find-count">0 / 0</span>
+            <button id="findPrev" class="ct-btn sm" title="이전 (Shift+Enter)">▲</button>
+            <button id="findNext" class="ct-btn sm" title="다음 (Enter)">▼</button>
+            <button id="findClose" class="ct-btn sm" title="닫기 (Esc)">✕</button>
+          </div>
+
+          <div id="jumpPanel" class="jump-panel hidden">
+            <div class="jump-head">
+              <span>내가 한 말</span>
+              <span id="jumpCount" class="jump-count"></span>
+            </div>
+            <ol id="jumpList" class="jump-list"></ol>
+            <div class="jump-foot">누르면 그 자리로 이동합니다</div>
+          </div>
+
+          <div id="messages" class="messages">
+            <div id="welcome" class="welcome">
+              <div class="welcome-mark">🍓</div>
+              <h1>무엇을 도와드릴까요?</h1>
+              <p class="welcome-sub">
+                기획서·데이터 테이블·밸런스·QA·프로젝트 탐색을 대화로 처리합니다.
+                ⚡ 버튼에서 자주 쓰는 업무 스킬을 바로 부를 수 있습니다.
+              </p>
+            </div>
+          </div>
+
+          <div class="composer-wrap">
+            <!-- 맨 아래로 내리기 (위로 많이 올라갔을 때만 보인다) -->
+            <button id="toBottom" class="to-bottom hidden">
+              <span id="toBottomText">맨 아래로 내리기</span><span class="tb-arrow">↓</span>
+            </button>
+
+            <!-- 슬래시 명령 -->
+            <div id="cmdMenu" class="cmd-menu hidden"></div>
+
+            <!-- 작업 현황 -->
+            <div id="work" class="work hidden">
+              <div class="work-head">
+                <span class="spin-sm"></span>
+                <span id="workTitle" class="work-title">준비 중</span>
+                <span id="workMeta" class="work-meta"></span>
+                <button id="thinkToggle" class="work-toggle hidden">생각 보기 ▾</button>
+                <button id="workToggle" class="work-toggle">접기</button>
+              </div>
+              <ol id="workList" class="work-list"></ol>
+              <pre id="thinkBox" class="think-box hidden"></pre>
+              <div id="workStall" class="work-stall hidden">
+                <div id="workStallText"></div>
+                <div class="stall-actions">
+                  <button id="stallStop" class="ghost sm">중지하기</button>
+                  <button id="stallWait" class="ghost sm">계속 기다리기</button>
+                </div>
+              </div>
+            </div>
+            <div id="errBar" class="err-bar hidden">
+              <span id="errBarText"></span>
+              <label class="err-toggle"><input type="checkbox" id="errInclude" checked /> 다음 요청에 포함</label>
+              <button id="errClear" class="ghost sm">지우기</button>
+            </div>
+            <div id="queueBar" class="queue-bar hidden"></div>
+            <div id="attachments" class="attachments hidden"></div>
+            <div class="composer">
+              <div class="attach-wrap">
+                <button id="attachBtn" class="icon-btn" title="파일·폴더 추가">＋</button>
+                <div id="attachMenu" class="attach-menu hidden">
+                  <div class="attach-menu-item" data-act="file">🖼️ 파일 또는 이미지 추가</div>
+                  <div class="attach-menu-item" data-act="folder">📁 폴더 추가</div>
+                </div>
+              </div>
+              <div class="attach-wrap">
+                <button id="skillBtn" class="icon-btn" title="스킬">⚡</button>
+                <div id="skillMenu" class="attach-menu hidden">
+                  <div class="attach-menu-item" data-skill="design-doc">
+                    📄 기획서
+                    <div class="skill-sub">기획서 읽기·질문 답변·수정·예외처리 검수·새 기획서 작성</div>
+                  </div>
+                  <div class="attach-menu-item" data-skill="data-table">
+                    📊 데이터 테이블
+                    <div class="skill-sub">테이블 읽기·수정·오류 검수·기획서 기반 새 테이블 작성</div>
+                  </div>
+                  <div class="attach-menu-item" data-skill="balance">
+                    ⚖️ 밸런스 검증
+                    <div class="skill-sub">테이블·코드 기반 시뮬레이션, 필요 시 HTML 시뮬레이터 제작</div>
+                  </div>
+                  <div class="attach-menu-item" data-skill="explore">
+                    🔎 탐색·정합성
+                    <div class="skill-sub">질문의 답 찾기, 변경 영향도 리스팅, 테이블↔코드 불일치 검사</div>
+                  </div>
+                  <div class="attach-menu-item" data-skill="qa">
+                    ✅ QA 테스트 케이스
+                    <div class="skill-sub">카드·기획서·테이블·코드 기반 QA 케이스 작성과 우선순위 분류</div>
+                  </div>
+                  <div class="attach-menu-item" data-skill="archive">
+                    🗂 아카이빙
+                    <div class="skill-sub">중요 의사결정 기록, 작업 히스토리 정리</div>
+                  </div>
+                </div>
+              </div>
+              <textarea id="input" rows="1" placeholder="기획 업무를 자연어로 요청하세요…  (이미지 붙여넣기·드래그 첨부 가능)"></textarea>
+              <button id="stopBtn" class="send stop hidden" title="중지">■</button>
+              <button id="sendBtn" class="send" title="전송">➤</button>
+            </div>
+            <div class="composer-hint">
+              <label class="model-select">
+                모델
+                <select id="modelSelect">
+                  <option value="claude-opus-5">Opus 5 — 가장 정확</option>
+                  <option value="claude-fable-5">Fable 5 — 가장 강력 (토큰 주의)</option>
+                  <option value="claude-sonnet-5" selected>Sonnet 5 — 기본·빠름</option>
+                  <option value="claude-haiku-4-5-20251001">Haiku 4.5 — 가장 저렴</option>
+                </select>
+              </label>
+              <label class="model-select">
+                권한
+                <select id="permSelect" title="에이전트가 도구를 쓸 때 확인을 받을지">
+                  <option value="bypassPermissions">자동 승인 — 확인 없이 진행</option>
+                  <option value="acceptEdits">편집 자동 — 명령·웹은 확인</option>
+                  <option value="default">매번 확인</option>
+                  <option value="plan">계획만 — 파일 안 고침</option>
+                </select>
+              </label>
+              <span id="ctxUsage" class="ctx-usage hidden" title="현재 작업의 컨텍스트 사용량"></span>
+              <span class="hint-text">Enter 전송 · Shift+Enter 줄바꿈 · / 명령 · ⌘F 찾기</span>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- 오른쪽: 미리보기 -->
+      <div id="dragbar" class="dragbar"></div>
+      <section id="previewPanel" class="preview-panel">
+        <div class="pv-toolbar">
+          <select id="pvFile" class="pv-select" title="미리볼 HTML 파일">
+            <option value="">HTML 파일 없음</option>
+          </select>
+          <select id="pvDevice" class="pv-select narrow" title="화면 규격">
+            <option value="fit">패널에 맞춤</option>
+            <option value="375x812">폰 375×812</option>
+            <option value="430x932">폰(큰) 430×932</option>
+            <option value="768x1024">태블릿 768×1024</option>
+            <option value="1280x800">데스크톱 1280×800</option>
+          </select>
+          <button id="pvReload" class="icon-btn sm" title="새로고침">↻</button>
+          <button id="pvDev" class="icon-btn sm" title="개발자 도구">⚙</button>
+          <span id="pvErrBadge" class="pv-err hidden" title="미리보기에서 발생한 오류">0</span>
+        </div>
+        <div id="pvStage" class="pv-stage">
+          <div id="pvEmpty" class="pv-empty">
+            표시할 HTML 파일이 없습니다.
+            시뮬레이터나 리포트를 만들면 여기에 나타납니다.
+          </div>
+          <button id="pvRestart" class="ghost sm pv-restart hidden">미리보기 다시 시작</button>
+        </div>
+        <div id="pvFoot" class="pv-foot"></div>
+      </section>
+    </div>
+
+
+    <!-- 제작 지침 모달 -->
+    <div id="guideModal" class="modal-backdrop hidden">
+      <div class="modal guide">
+        <div class="guide-head">
+          <button class="tab-btn active" data-guide="rules">도구 지침</button>
+          <button class="tab-btn" data-guide="patch">패치노트</button>
+          <button id="guideClose" class="icon-btn sm guide-close">✕</button>
+        </div>
+        <div id="guideBody" class="md guide-body"></div>
+        <div id="guideFoot" class="guide-foot">이 문서는 앱에 내장되어 있습니다. 매 작업마다 에이전트가 먼저 읽습니다.</div>
+      </div>
+    </div>
+
+
+    <!-- 권한 확인 -->
+    <div id="permModal" class="modal-backdrop hidden">
+      <div class="modal perm">
+        <div class="perm-head"><span id="permTool" class="perm-tool"></span> — 허용할까요?</div>
+        <div id="permTitle" class="perm-title"></div>
+        <pre id="permSummary" class="perm-summary"></pre>
+        <div id="permDesc" class="perm-desc"></div>
+        <div class="modal-actions">
+          <button id="permDeny" class="ghost">거부</button>
+          <button id="permAlways" class="ghost">이 도구는 항상 허용</button>
+          <button id="permAllow" class="primary">허용</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 연동 설정 -->
+    <div id="connModal" class="modal-backdrop hidden">
+      <div class="modal conn">
+        <div class="guide-head">
+          <span class="usage-title">🔗 연동 설정</span>
+          <button id="connClose" class="icon-btn sm guide-close">✕</button>
+        </div>
+        <div class="conn-body">
+          <div class="conn-sec">서비스 연결 <span class="conn-note-inline">— 토큰은 OS 키체인에 암호화 보관되며 다시 표시되지 않습니다</span></div>
+
+          <div class="conn-row">
+            <div class="conn-head-row">
+              <span class="conn-name">구글 워크스페이스</span>
+              <span id="gState" class="conn-state">확인 중…</span>
+            </div>
+            <div class="conn-actions">
+              <button id="gImport" class="ghost sm">① 클라이언트 JSON 가져오기</button>
+              <button id="gLogin" class="ghost sm">② 구글 로그인</button>
+              <button id="gOut" class="ghost sm danger hidden">해제</button>
+            </div>
+            <details class="conn-help">
+              <summary>연결 방법 보기</summary>
+              <ol>
+                <li>console.cloud.google.com — 회사 계정으로 <b>새 프로젝트</b> 생성 (⚠️ 결제 계정은 절대 연결하지 않기 — 미연결이면 과금이 불가능합니다)</li>
+                <li><b>API 및 서비스 → 라이브러리</b>에서 Drive · Docs · Sheets · Slides API 4개 <b>사용 설정</b></li>
+                <li><b>OAuth 동의 화면</b> → User Type <b>내부(Internal)</b> → 앱 이름 입력 후 저장</li>
+                <li><b>사용자 인증 정보 → OAuth 클라이언트 ID</b> → 유형 <b>데스크톱 앱</b> → 만들기 → <b>JSON 다운로드</b></li>
+                <li>여기서 ① 버튼으로 그 JSON 파일을 가져온 뒤 ② 로그인 (브라우저 동의 → 자동 연결)</li>
+              </ol>
+            </details>
+          </div>
+
+          <div class="conn-row">
+            <div class="conn-head-row">
+              <span class="conn-name">슬랙</span>
+              <span id="sState" class="conn-state">—</span>
+            </div>
+            <div class="conn-actions">
+              <input id="sToken" type="password" class="conn-input grow" placeholder="봇 토큰 (xoxb-…) 붙여넣기" autocomplete="off" />
+              <button id="sSave" class="ghost sm">저장·확인</button>
+              <button id="sOut" class="ghost sm danger hidden">해제</button>
+            </div>
+            <details class="conn-help">
+              <summary>연결 방법 보기</summary>
+              <ol>
+                <li>api.slack.com/apps → <b>Create New App → From a manifest</b> → 워크스페이스 선택 (매니페스트 내용은 팀 가이드 문서 참고, 또는 <b>Blank app</b>으로 만들고 스코프 6개 수동 추가: channels:history/read, groups:history/read, chat:write, users:read)</li>
+                <li>왼쪽 메뉴 <b>OAuth &amp; Permissions → Install to Workspace</b> → 허용</li>
+                <li>같은 페이지의 <b>Bot User OAuth Token</b> (xoxb-…) 복사 → 위 칸에 붙여넣기</li>
+                <li>딸기툴이 읽을 각 채널에서 <code>/invite @딸기툴</code> 후, 아래 [채널 불러오기]에서 체크</li>
+              </ol>
+            </details>
+          </div>
+
+          <div class="conn-row">
+            <div class="conn-head-row">
+              <span class="conn-name">트렐로</span>
+              <span id="tState" class="conn-state">—</span>
+            </div>
+            <div class="conn-actions">
+              <input id="tKey" type="password" class="conn-input grow" placeholder="API Key" autocomplete="off" />
+              <input id="tToken" type="password" class="conn-input grow" placeholder="토큰" autocomplete="off" />
+              <button id="tSave" class="ghost sm">저장·확인</button>
+              <button id="tOut" class="ghost sm danger hidden">해제</button>
+            </div>
+            <details class="conn-help">
+              <summary>연결 방법 보기</summary>
+              <ol>
+                <li>trello.com/power-ups/admin → <b>New</b> — 이름·워크스페이스 입력 (Iframe URL은 비워도 됨)</li>
+                <li>만든 항목의 <b>API Key</b> 탭 → 키 생성 → 복사</li>
+                <li>같은 화면의 <b>Token</b> 링크로 토큰 수동 생성 → 허용 → 복사</li>
+                <li>둘 다 위 칸에 붙여넣고 저장·확인</li>
+              </ol>
+            </details>
+          </div>
+
+          <div class="conn-sec">프로젝트 연결 <span id="connProjName" class="conn-note-inline"></span></div>
+
+          <label class="conn-label">구글 드라이브 — 기획서(독스) 폴더</label>
+          <input id="pDocsFolder" class="conn-input wide" placeholder="폴더 ID 또는 드라이브 폴더 URL 붙여넣기" />
+          <label class="conn-label">구글 드라이브 — 데이터 테이블(시트) 폴더</label>
+          <input id="pSheetsFolder" class="conn-input wide" placeholder="폴더 ID 또는 드라이브 폴더 URL 붙여넣기" />
+
+          <label class="conn-label">슬랙 채널 — 체크된 채널만 딸기툴이 조회합니다</label>
+          <div class="conn-pick">
+            <button id="pSlackLoad" class="ghost sm">채널 불러오기</button>
+            <div id="pSlackList" class="conn-list"></div>
+          </div>
+
+          <label class="conn-label">트렐로 보드</label>
+          <div class="conn-pick">
+            <button id="pTrelloLoad" class="ghost sm">보드 불러오기</button>
+            <div id="pTrelloList" class="conn-list"></div>
+          </div>
+
+          <label class="conn-label">유니티 프로젝트 경로 (읽기 전용으로 사용)</label>
+          <div class="conn-pick">
+            <button id="pUnityPick" class="ghost sm">폴더 선택</button>
+            <span id="pUnityPath" class="conn-path">없음</span>
+          </div>
+
+          <div class="modal-actions">
+            <button id="connSave" class="primary">프로젝트 설정 저장 → .ddalgi/project.yaml</button>
+          </div>
+          <div id="connMsg" class="setup-msg"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 사용량 -->
+    <div id="usageModal" class="modal-backdrop hidden">
+      <div class="modal usage">
+        <div class="guide-head">
+          <span class="usage-title">사용량</span>
+          <button id="usageClose" class="icon-btn sm guide-close">✕</button>
+        </div>
+        <div id="usageBody" class="usage-body"></div>
+        <div class="modal-actions usage-actions">
+          <button id="usageReset" class="ghost sm">누적 기록 초기화</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+    <div id="tabMenu" class="tab-menu hidden"></div>
+
+    <div id="promptModal" class="modal-backdrop hidden">
+      <div class="modal confirm">
+        <p id="promptMsg"></p>
+        <input id="promptInput" type="text" class="prompt-input" />
+        <div class="modal-actions">
+          <button id="promptNo" class="ghost">취소</button>
+          <button id="promptYes" class="primary">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="confirmModal" class="modal-backdrop hidden">
+      <div class="modal confirm">
+        <p id="confirmMsg"></p>
+        <div class="modal-actions">
+          <button id="confirmNo" class="ghost">아니오</button>
+          <button id="confirmYes" class="primary">예</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

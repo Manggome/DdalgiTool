@@ -1,0 +1,79 @@
+# =============================================================
+# .ddalgi/project.yaml — 딸기툴 프로젝트 설정 예시
+# 프로젝트 루트의 .ddalgi/ 폴더에 project.yaml로 저장하세요.
+# 모든 스킬이 이 파일을 소스 위치·매핑의 진실로 삼습니다.
+# =============================================================
+
+# 프로젝트 표시 이름 (로그·리포트에 사용)
+project_name: "달빛모험단"
+
+# ---- 구글 드라이브 ------------------------------------------
+google_drive:
+  # 기획서(구글 독스)가 모여 있는 폴더 ID (드라이브 URL의 folders/ 뒤 문자열)
+  docs_folder_id: "1AbCdEfGhIjKlMnOpQrStUvWxYz12345"
+  # 데이터 테이블(구글 시트) 폴더 ID
+  sheets_folder_id: "1ZyXwVuTsRqPoNmLkJiHgFeDcBa54321"
+  # 발표자료(구글 슬라이드) 폴더 ID (선택)
+  slides_folder_id: "1QwErTyUiOpAsDfGhJkLzXcVbNm09876"
+
+# ---- 슬랙 ----------------------------------------------------
+slack:
+  # 딸기툴이 검색·백업 대상으로 삼는 채널 ID 목록.
+  # 여기 없는 채널은 조회하지 않습니다 (토큰·프라이버시 보호).
+  channels:
+    - id: "C0123456789"
+      name: "기획-전투"        # 사람이 읽는 라벨 (카탈로그·리포트용)
+    - id: "C0987654321"
+      name: "기획-경제"
+    - id: "C0456789123"
+      name: "팀-공지"
+
+# ---- 트렐로 --------------------------------------------------
+trello:
+  # QA·탐색 스킬이 참조하는 보드 ID 목록
+  boards:
+    - id: "aBcDeFgH"
+      name: "스프린트"
+    - id: "iJkLmNoP"
+      name: "QA"
+
+# ---- 유니티 --------------------------------------------------
+unity:
+  # 유니티 프로젝트 루트 (Assets/ 상위). 코드 grep·정합성 검사 기준 경로.
+  project_path: "/Users/me/Projects/moonlight-party"
+  # 코드 탐색 시 우선 검색할 하위 경로 (선택 — 좁힐수록 빠르고 저렴)
+  scripts_root: "Assets/Scripts"
+
+# ---- 테이블 ↔ 코드 매핑 --------------------------------------
+# explore 스킬의 정합성 검사와 변경 영향도 분석의 근거가 되는 선언.
+# 선언된 매핑만 결정적으로 검사합니다. 새 테이블을 만들면 여기 추가하세요.
+table_code_mappings:
+  - table: "MonsterTable"                       # 구글 시트 이름
+    tab: "Main"                                 # 탭 이름
+    key_column: "Id"                            # 대조 기준 컬럼
+    code_file: "Assets/Scripts/Data/MonsterId.cs"  # project_path 기준 상대 경로
+    code_symbol: "MonsterId"                    # enum/클래스 이름
+    kind: enum                                  # enum | const_class | scriptable_object
+    # transform: "snake_upper→pascal"           # (선택) 이름 변환 규칙: 시트 MON_0042 ↔ 코드 Mon0042
+  - table: "ItemTable"
+    tab: "Main"
+    key_column: "Id"
+    code_file: "Assets/Scripts/Data/ItemId.cs"
+    code_symbol: "ItemId"
+    kind: enum
+
+# ---- 인덱서 --------------------------------------------------
+# 백그라운드 인덱서가 만드는 카탈로그(문서·시트·채널 목록과 요약) 설정.
+# 모든 스킬은 원본 조회 전에 이 카탈로그로 후보를 좁힙니다.
+indexer:
+  daily_api_budget: 500        # 하루 외부 API 호출 상한 (초과 시 동기화 중단, 조회는 캐시 사용)
+  sync_interval_hours: 6       # 카탈로그 동기화 주기 (시간)
+  # 인덱스에서 제외할 항목 (선택)
+  exclude:
+    - "드라이브: 개인 메모"    # 폴더/문서 이름 패턴
+
+# ---- 아카이브 ------------------------------------------------
+archive:
+  # ADR·작업 로그·슬랙 백업이 쌓이는 루트 (프로젝트 기준 상대 경로 또는 절대 경로)
+  path: "archive"
+  # 하위 구조는 고정: decisions/ , logs/ , slack/
