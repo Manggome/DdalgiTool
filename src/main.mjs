@@ -26,6 +26,8 @@ import {
 import { PreviewServer } from './preview-server.mjs';
 import { setMeterListener, meterStats } from './metering.mjs';
 import { loadProject, saveProjectLinks } from './project.mjs';
+import { syncIndex, indexStatus } from './indexer.mjs';
+import { routeRequest, routerHint } from './router.mjs';
 import {
   importClientSecret,
   hasGoogleClient,
@@ -442,6 +444,22 @@ function startWatch(root) {
   }
 }
 
+let indexTimer = null;
+
+/** 인덱스 동기화 — 백그라운드에서 돌고, 진행·완료를 화면에 알린다. */
+async function runIndexSync(force) {
+  if (!workDir) return { ok: false };
+  try {
+    const r = await syncIndex(workDir, { force, onStatus: (m) => send('pb:indexStatus', { msg: m }) });
+    if (!r.skipped) send('pb:indexStatus', { done: true, ...r });
+    return r;
+  } catch (e) {
+    flog('인덱스 동기화 실패: ' + e.message);
+    send('pb:indexStatus', { done: true, ok: false, error: e.message });
+    return { ok: false, error: e.message };
+  }
+}
+
 async function useWorkDir(dir) {
   workDir = dir;
   setToolContext({ workDir: dir });
@@ -449,6 +467,10 @@ async function useWorkDir(dir) {
   saveConfig({ ...prev, workDir: dir });
   await preview.serve(dir);
   startWatch(dir);
+  // 앱을 막지 않게 3초 뒤 백그라운드 동기화 (주기 내면 인덱서가 알아서 건너뛴다)
+  clearTimeout(indexTimer);
+  indexTimer = setTimeout(() => void runIndexSync(false), 3000);
+  setInterval(() => void runIndexSync(false), 3600_000).unref?.();
   return { status: 'ready', workDir: dir, htmlFiles: listHtml(dir) };
 }
 
@@ -687,6 +709,7 @@ ipcMain.handle('conn:status', async () => {
     slack: slackStatus(),
     trello: trelloStatus(),
     project: workDir ? (loadProject(workDir) ?? null) : null,
+    index: workDir ? indexStatus(workDir) : null,
     workDir,
   };
   return out;
@@ -787,6 +810,8 @@ ipcMain.handle('conn:projectSave', (_e, links) => {
   }
 });
 
+ipcMain.handle('conn:syncIndex', () => runIndexSync(true));
+
 ipcMain.handle('conn:meter', () => meterStats());
 
 ipcMain.handle('pb:permissionReply', (_e, { id, decision }) => {
@@ -877,6 +902,22 @@ ipcMain.handle('pb:attachSession', (_e, { convId, sessionId }) => {
 /** 지금 작업 중인 대화 id 목록. */
 ipcMain.handle('pb:busyConvs', () => [...convs.entries()].filter(([, c]) => c.busy).map(([id]) => id));
 
+/**
+ * 아카이빙(M5) — 모든 턴을 작업 폴더의 archive/logs/ 에 jsonl 로 자동 기록한다.
+ * 로컬 기록이라 승인이 필요 없고, 인덱서가 카탈로그에 포함해 "예전에 뭐 했지?" 질문에 쓴다.
+ */
+function appendTurnLog(entry) {
+  if (!workDir) return;
+  try {
+    const dir = path.join(workDir, loadProject(workDir)?.archive?.path ?? 'archive', 'logs');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, new Date().toISOString().slice(0, 10) + '.jsonl');
+    fs.appendFileSync(file, JSON.stringify(entry) + '\n', 'utf-8');
+  } catch (e) {
+    flog('턴 로그 기록 실패: ' + e.message);
+  }
+}
+
 /** 한 턴 실행. 대화별로 독립이라 탭을 바꿔도 계속 돈다. */
 async function runAsk(convId, prompt, attachments, opts) {
   if (!workDir) return { status: 'error', message: '작업 폴더가 아직 준비되지 않았습니다.' };
@@ -906,6 +947,13 @@ async function runAsk(convId, prompt, attachments, opts) {
   const ev = (ch, payload) => send(ch, { convId, ...payload });
   const startedAt = Date.now();
   c.busy = true;
+
+  // 소프트 라우터 — Haiku 가 카탈로그를 보고 소스·스킬 힌트를 앞에 붙인다 (실패 시 그냥 진행)
+  if (!String(prompt).startsWith('/') && loadConfig()?.router !== false) {
+    const route = await routeRequest(workDir, prompt);
+    const hint = routerHint(route);
+    if (hint) fullPrompt = hint + fullPrompt;
+  }
   flog(
     `턴 시작 (conv=${convId}, model=${currentModel}, mode=${permissionMode}) ` +
       `프롬프트: ${String(prompt).replace(/\s+/g, ' ').slice(0, 50)}`,
@@ -941,9 +989,29 @@ async function runAsk(convId, prompt, attachments, opts) {
       toolCounts: res.toolCounts,
     };
     flog(`턴 종료 (conv=${convId}, ${res.aborted ? '중지' : '정상'}, ${((Date.now() - startedAt) / 1000).toFixed(1)}초)`);
+    appendTurnLog({
+      ts: new Date().toISOString(),
+      conv: convId,
+      status: res.aborted ? 'stopped' : 'ok',
+      model: currentModel,
+      mode: permissionMode,
+      sec: Math.round((Date.now() - startedAt) / 1000),
+      tools: res.toolCounts,
+      costUsd: res.costUsd,
+      prompt: String(prompt).replace(/\s+/g, ' ').slice(0, 200),
+    });
     return { status: res.aborted ? 'stopped' : 'ok', result: res.resultText, ...meta };
   } catch (e) {
     flog(`턴 오류 (conv=${convId}, ${((Date.now() - startedAt) / 1000).toFixed(1)}초): ${e.message}`);
+    appendTurnLog({
+      ts: new Date().toISOString(),
+      conv: convId,
+      status: 'error',
+      model: currentModel,
+      sec: Math.round((Date.now() - startedAt) / 1000),
+      error: String(e.message).slice(0, 200),
+      prompt: String(prompt).replace(/\s+/g, ' ').slice(0, 200),
+    });
     return { status: 'error', message: e.message };
   } finally {
     c.busy = false;

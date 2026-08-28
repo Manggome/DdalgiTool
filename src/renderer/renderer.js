@@ -73,6 +73,8 @@ const el = {
   pTrelloList: $('#pTrelloList'),
   pUnityPick: $('#pUnityPick'),
   pUnityPath: $('#pUnityPath'),
+  idxSync: $('#idxSync'),
+  idxState: $('#idxState'),
   permModal: $('#permModal'),
   permTool: $('#permTool'),
   permTitle: $('#permTitle'),
@@ -1892,6 +1894,20 @@ async function refreshConn(withProject = false) {
     el.tOut.classList.add('hidden');
   }
 
+  // 인덱스 상태
+  if (st.index?.syncedAt) {
+    const c = st.index.counts || {};
+    const parts = [];
+    if (c.docs != null) parts.push(`기획서 ${c.docs}`);
+    if (c.sheets != null) parts.push(`시트 ${c.sheets}`);
+    if (c.slackChannels != null) parts.push(`채널 ${c.slackChannels}`);
+    if (c.trelloLists != null) parts.push(`트렐로 리스트 ${c.trelloLists}`);
+    if (c.csFiles != null) parts.push(`.cs ${c.csFiles}`);
+    stateEl(el.idxState, `${String(st.index.syncedAt).slice(0, 16).replace('T', ' ')} 동기화 — ${parts.join(' · ')}`, 'ok');
+  } else {
+    stateEl(el.idxState, '아직 동기화 전');
+  }
+
   // 프로젝트 연결 프리필 — 모달을 새로 열 때만. (서비스 버튼을 누를 때마다 하면
   // 사용자가 방금 체크한 채널·보드 선택이 저장 전에 풀려 버린다.)
   if (!withProject) return;
@@ -2047,6 +2063,19 @@ function bindConn() {
   el.pUnityPick.addEventListener('click', async () => {
     const d = await pb.connPickUnityDir();
     if (d) el.pUnityPath.textContent = d;
+  });
+
+  el.idxSync.addEventListener('click', async () => {
+    stateEl(el.idxState, '동기화 중…');
+    const r = await pb.connSyncIndex();
+    if (r?.ok) showToast('인덱스 동기화 완료');
+    else showToast('인덱스 동기화 실패 — ' + (r?.error || r?.reason || ''), null, 'warn');
+    void refreshConn();
+  });
+  pb.onIndexStatus((p) => {
+    if (p.msg) stateEl(el.idxState, '동기화 중 — ' + p.msg);
+    else if (p.done && p.ok) void refreshConn();
+    else if (p.done && p.ok === false) stateEl(el.idxState, '실패: ' + (p.error || ''), 'err');
   });
 
   el.connSave.addEventListener('click', async () => {

@@ -57,7 +57,9 @@ contextBridge.exposeInMainWorld('pb', {
   connTrelloBoards: () => ipcRenderer.invoke('conn:trelloBoards'),
   connPickUnityDir: () => ipcRenderer.invoke('conn:pickUnityDir'),
   connProjectSave: (links) => ipcRenderer.invoke('conn:projectSave', links),
+  connSyncIndex: () => ipcRenderer.invoke('conn:syncIndex'),
   connMeter: () => ipcRenderer.invoke('conn:meter'),
+  onIndexStatus: (cb) => ipcRenderer.on('pb:indexStatus', (_e, p) => cb(p)),
   onMeterEvent: (cb) => ipcRenderer.on('pb:meterEvent', (_e, p) => cb(p)),
   onExternalPage: (cb) => ipcRenderer.on('pb:externalPage', (_e, p) => cb(p)),
 
