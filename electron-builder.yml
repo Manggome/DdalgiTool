@@ -23,7 +23,8 @@ files:
   - package.json
   - src/**/*
   - node_modules/**/*
-  - '!node_modules/**/{test,tests,__tests__,example,examples,doc,docs}/**'
+  # 주의: 'doc' 을 제외 목록에 넣으면 yaml 패키지의 실제 코드(yaml/dist/doc/)가 빠져 앱이 죽는다.
+  - '!node_modules/**/{test,tests,__tests__,example,examples,docs}/**'
   - '!node_modules/**/*.{md,markdown,map,ts.map}'
   - '!**/.DS_Store'
 
