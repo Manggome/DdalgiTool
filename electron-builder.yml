@@ -1,0 +1,101 @@
+appId: kr.neptunecompany.ddalgi-tool
+# 실행 파일·헬퍼 이름에 한글이 들어가면 패키징된 앱이 실행 즉시 죽는다(SIGTRAP).
+# 번들 이름은 ASCII 로 두고, 사용자에게 보이는 이름은 아래 extendInfo 의 CFBundleDisplayName 으로 준다.
+productName: Ddalgi
+copyright: Copyright © 2026
+
+directories:
+  buildResources: build
+  output: dist-app
+
+afterSign: build/afterSign.cjs
+
+# claude 실행 파일(300MB)을 그대로 실행해야 하므로 asar로 묶지 않는다.
+asar: false
+
+# asar 를 쓰지 않으므로 asar 무결성 검사 fuse 를 끈다.
+# (켜져 있으면 Info.plist 가 존재하지 않는 default_app.asar 의 해시를 요구해 실행 즉시 죽는다)
+electronFuses:
+  enableEmbeddedAsarIntegrityValidation: false
+  onlyLoadAppFromAsar: false
+
+files:
+  - package.json
+  - src/**/*
+  - node_modules/**/*
+  - '!node_modules/**/{test,tests,__tests__,example,examples,doc,docs}/**'
+  - '!node_modules/**/*.{md,markdown,map,ts.map}'
+  - '!**/.DS_Store'
+
+mac:
+  # 다른 플랫폼용 claude 바이너리는 빼고 담는다 (각 300MB 대)
+  files:
+    - '!node_modules/@anthropic-ai/claude-agent-sdk-win32-*/**'
+  category: public.app-category.developer-tools
+  icon: build/icon.png
+  darkModeSupport: true
+  minimumSystemVersion: '11.0'
+  # 서명은 build/afterPack.cjs 에서 ad-hoc 으로 직접 한다.
+  # Developer ID 인증서가 생기면 identity 를 인증서 이름으로 바꾸고 notarize: true 를 켠 뒤
+  # afterPack 훅을 제거하면 배포용 서명이 된다.
+  identity: null
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch: [arm64]
+  extendInfo:
+    # CFBundleName 은 ASCII 로 둔다(한글이면 실행 즉시 죽는다). 표시 이름만 한글로 준다.
+    CFBundleDisplayName: 딸각기획
+    # 미리보기를 127.0.0.1 로 서비스하므로 로컬 예외만 열어 둔다.
+    NSAppTransportSecurity:
+      NSAllowsLocalNetworking: true
+      NSExceptionDomains:
+        127.0.0.1:
+          NSIncludesSubdomains: false
+          NSTemporaryExceptionAllowsInsecureHTTPLoads: true
+        localhost:
+          NSIncludesSubdomains: false
+          NSTemporaryExceptionAllowsInsecureHTTPLoads: true
+
+win:
+  files:
+    - '!node_modules/@anthropic-ai/claude-agent-sdk-darwin-*/**'
+  icon: build/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  artifactName: Ddalgi-${version}-${arch}-setup.exe
+  oneClick: false # 설치 위치를 고를 수 있는 일반 설치 마법사
+  perMachine: false # 관리자 권한 없이 사용자 폴더에 설치
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 딸각기획
+  language: '1042' # 한국어 설치 화면
+  installerLanguages:
+    - ko_KR
+
+dmg:
+  title: 딸각기획 ${version}
+  artifactName: Ddalgi-${version}-${arch}.dmg
+  iconSize: 108
+  window:
+    width: 640
+    height: 420
+  contents:
+    - x: 165
+      y: 175
+      type: file
+    - x: 475
+      y: 175
+      type: link
+      path: /Applications
+    - x: 320
+      y: 330
+      type: file
+      path: build/처음 실행하는 방법.txt
