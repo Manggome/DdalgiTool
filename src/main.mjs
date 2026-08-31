@@ -27,6 +27,7 @@ import { PreviewServer } from './preview-server.mjs';
 import { setMeterListener, meterStats } from './metering.mjs';
 import { loadProject, saveProjectLinks } from './project.mjs';
 import { syncIndex, indexStatus } from './indexer.mjs';
+import { checkUpdate, downloadUpdate, releaseFolderId } from './updater.mjs';
 import { routeRequest, routerHint } from './router.mjs';
 import {
   importClientSecret,
@@ -837,6 +838,55 @@ ipcMain.handle('conn:writeAllow', (_e, action, key) => {
     saveConfig({ ...cfg, writeAllow: cur });
   }
   return Object.keys(cur);
+});
+
+// ---- 앱 업데이트 (드라이브 릴리스 폴더) ----
+
+let pendingUpdate = null;
+
+async function runUpdateCheck(notify) {
+  try {
+    const r = await checkUpdate(workDir);
+    if (r?.version && !r.skip && !r.upToDate) {
+      pendingUpdate = r;
+      if (notify) send('pb:updateAvailable', { version: r.version, name: r.name });
+      flog('업데이트 발견: ' + r.name);
+    }
+    return r;
+  } catch (e) {
+    flog('업데이트 확인 실패: ' + e.message);
+    return { skip: true, reason: e.message };
+  }
+}
+
+ipcMain.handle('up:check', () => runUpdateCheck(false));
+
+ipcMain.handle('up:download', async () => {
+  const target = pendingUpdate;
+  if (!target) return { ok: false, error: '대기 중인 업데이트가 없습니다.' };
+  try {
+    const dest = await downloadUpdate(target);
+    flog('업데이트 다운로드 완료: ' + dest);
+    await shell.openPath(dest); // dmg 는 마운트, exe 는 설치 마법사 실행
+    return { ok: true, path: dest, version: target.version };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('up:setFolder', (_e, folderId) => {
+  const cfg = loadConfig() ?? {};
+  saveConfig({ ...cfg, releaseFolderId: String(folderId || '').trim() });
+  return { ok: true };
+});
+
+ipcMain.handle('up:getFolder', () => releaseFolderId(workDir));
+
+// 설치본에서만 자동 확인: 시작 30초 뒤 1회 + 이후 12시간마다
+app.whenReady().then(() => {
+  if (!app.isPackaged) return;
+  setTimeout(() => void runUpdateCheck(true), 30000);
+  setInterval(() => void runUpdateCheck(true), 12 * 3600_000).unref?.();
 });
 
 ipcMain.handle('conn:meter', () => meterStats());
