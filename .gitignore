@@ -3,3 +3,11 @@ dist-app/
 .DS_Store
 nohup.out
 *.log
+
+# 보안 — 자격증명류는 어떤 형태로도 커밋 금지 (사고 예방)
+*.cred
+client_secret*.json
+.env
+.env.*
+*.pem
+*.key
