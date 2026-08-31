@@ -1336,6 +1336,11 @@ const SKILLS = {
     optional: true,
     prompt: (input) => skillPrompt('archive', '아카이빙', input),
   },
+  insight: {
+    ask: '어느 부분을 중점 진단할까요? (비워 두면 전방위 — 예: 초반 온보딩 / 경제 밸런스 / 리텐션)',
+    optional: true,
+    prompt: (input) => skillPrompt('insight', '프로젝트 진단', input),
+  },
 };
 
 /** 스킬 실행 — 프롬프트를 만들어 평소 전송 경로로 보낸다. */

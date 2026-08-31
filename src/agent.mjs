@@ -709,6 +709,7 @@ function buildAppendPrompt(knowledgeDir, skillsDir) {
     `- 탐색·영향도·정합성 검사:        ${skillsDir}/explore/SKILL.md`,
     `- QA 테스트 케이스:              ${skillsDir}/qa/SKILL.md`,
     `- 아카이빙·의사결정 기록:         ${skillsDir}/archive/SKILL.md`,
+    `- 프로젝트 진단 보고서(기획 문제점·트렌드 개선점): ${skillsDir}/insight/SKILL.md`,
     'SKILL.md 가 가리키는 references/ 문서는 그 단계가 실제로 필요할 때만 읽습니다.',
     `도구 전반의 규칙은 ${knowledgeDir}/도구지침.md 에 있습니다. 첫 턴에 한 번 읽어 두세요.`,
     '',
