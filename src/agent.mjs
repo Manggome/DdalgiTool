@@ -471,12 +471,48 @@ const ddalgiTools = createSdkMcpServer({
     ),
     tool(
       'trello_card',
-      '트렐로 카드 하나의 상세(설명 전문 + 코멘트)를 봅니다.',
+      '트렐로 카드 하나의 상세(설명 전문 + 코멘트 + 첨부)를 봅니다. 이미지 첨부(2MB 이하, 최대 3장)는 직접 볼 수 있게 함께 옵니다.',
       { card_id: z.string().describe('trello_board_cards 결과의 [id]') },
       async ({ card_id }) => {
         try {
           const c = await tr.trelloCard(card_id);
-          return text(`# ${c.name}\n라벨: ${c.labels.join(', ') || '없음'} · ${c.url}\n\n## 설명\n${c.desc}\n\n## 코멘트\n${c.comments}`);
+          const atts = await tr.trelloCardAttachments(card_id);
+          const lines = [`# ${c.name}`, `라벨: ${c.labels.join(', ') || '없음'} · ${c.url}`, '', '## 설명', c.desc, '', '## 코멘트', c.comments];
+          const images = [];
+          if (atts.length) {
+            lines.push('', `## 첨부 (${atts.length}개)`);
+            for (const a of atts) {
+              const kb = a.bytes ? ` ${Math.round(a.bytes / 1024)}KB` : '';
+              lines.push(`- ${a.name} [${a.mimeType || 'link'}${kb}] ${a.url}`);
+            }
+            const candidates = atts.filter((a) => a.mimeType.startsWith('image/') || /\.(png|jpe?g|gif|webp)(\?|$)/i.test(a.url));
+            for (const a of candidates.slice(0, 3)) {
+              try {
+                const img = await tr.trelloDownloadImage(a);
+                images.push({ type: 'image', data: img.base64, mimeType: img.mimeType });
+              } catch (e) {
+                lines.push(`  (이미지 "${a.name}" 표시 실패: ${e.message})`);
+              }
+            }
+            if (candidates.length > 3) lines.push(`  (이미지가 ${candidates.length}장이라 앞 3장만 표시)`);
+          }
+          return { content: [{ type: 'text', text: lines.join('\n') }, ...images] };
+        } catch (e) {
+          return errText(e);
+        }
+      },
+    ),
+    tool(
+      'trello_card_attach',
+      '[쓰기·승인 필요] 트렐로 카드에 URL 첨부(기획서 링크·이미지 주소)를 추가합니다.',
+      { card_id: z.string(), url: z.string().describe('첨부할 http(s) 주소'), name: z.string().optional().describe('첨부 표시 이름') },
+      async ({ card_id, url, name }) => {
+        try {
+          if (!/^https?:\/\//.test(url)) return errText(new Error('http(s) 주소만 첨부할 수 있습니다.'));
+          return await approvedWrite('트렐로 카드 첨부', `카드 ${card_id} 에 첨부: ${name ? name + ' — ' : ''}${url.slice(0, 200)}`, async () => {
+            await tr.trelloAttachUrl(card_id, url, name);
+            return '첨부 완료';
+          });
         } catch (e) {
           return errText(e);
         }
@@ -592,7 +628,7 @@ function buildAppendPrompt(knowledgeDir, skillsDir) {
     '- project.yaml 의 unity.project_path 저장소는 Bash 로 조회합니다: `git -C <경로> log --oneline -20`, `git -C <경로> log -p -- <파일>`, blame 등.',
     '- 깃은 **읽기 전용**입니다 — commit/push/checkout 등 상태를 바꾸는 명령은 실행하지 않습니다.',
     '- 슬랙: slack_channels / slack_history / slack_replies / slack_post[쓰기] — project.yaml 에 등록된 채널만',
-    '- 트렐로: trello_boards / trello_board_cards / trello_card / trello_lists / trello_card_create[쓰기] / trello_card_comment[쓰기]',
+    '- 트렐로: trello_boards / trello_board_cards / trello_card / trello_lists / trello_card_create[쓰기] / trello_card_comment[쓰기] / trello_card_attach[쓰기] — 카드의 이미지 첨부는 trello_card 로 직접 볼 수 있음',
     '쓰기 도구는 호출 시 앱이 사용자 승인을 자동으로 받습니다 — 그래도 호출 전에 무엇을 바꿀지 대화로 먼저 보여 주세요.',
     '도구가 "연결되어 있지 않습니다" 오류를 주면 사용자에게 [🔗 연동 설정]을 안내하고 그 소스 없이 진행할지 물어보세요.',
     '',
@@ -656,6 +692,7 @@ const DDALGI_WRITE_TOOLS = [
   'mcp__ddalgi__slack_post',
   'mcp__ddalgi__trello_card_create',
   'mcp__ddalgi__trello_card_comment',
+  'mcp__ddalgi__trello_card_attach',
 ];
 const ALL_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', ...DDALGI_READ_TOOLS, ...DDALGI_WRITE_TOOLS];
 const READ_ONLY_TOOLS = ['Read', 'Glob', 'Grep', ...DDALGI_READ_TOOLS, ...DDALGI_WRITE_TOOLS];
