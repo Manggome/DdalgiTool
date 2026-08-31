@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { loadCred, saveCred, deleteCred } from '../creds.mjs';
 import { meteredFetch } from '../metering.mjs';
 
@@ -115,4 +117,35 @@ export async function slackReplies(channelId, threadTs, limit = 50) {
 export async function slackPost(channelId, text) {
   const d = await call('chat.postMessage', { channel: channelId, text }, 'POST');
   return { ts: d.ts, channel: d.channel };
+}
+
+/**
+ * 파일 업로드 (QA 체크리스트 HTML 등). 새 3단계 API 사용.
+ * Slack 앱에 files:write 스코프가 필요하다 — 없으면 missing_scope 오류가 난다.
+ * 호출 전 반드시 앱 승인 절차를 거칠 것.
+ */
+export async function slackUploadFile(channelId, filePath, title) {
+  const buf = fs.readFileSync(filePath);
+  if (buf.length > 20 * 1024 * 1024) throw new Error('20MB 를 넘는 파일은 올리지 않습니다.');
+  const name = path.basename(filePath);
+  let step1;
+  try {
+    step1 = await call('files.getUploadURLExternal', { filename: name, length: String(buf.length) });
+  } catch (e) {
+    if (String(e.message).includes('missing_scope')) {
+      throw new Error(
+        '슬랙 앱에 파일 업로드 권한(files:write)이 없습니다. api.slack.com/apps → 딸기툴 → OAuth & Permissions 에서 ' +
+          'files:write 스코프를 추가하고 Reinstall 한 뒤, 연동 설정에서 새 토큰으로 다시 연결하세요.',
+      );
+    }
+    throw e;
+  }
+  const up = await meteredFetch('slack', step1.upload_url, { method: 'POST', body: buf });
+  if (!up.ok) throw new Error(`파일 전송 실패 (${up.status})`);
+  await call(
+    'files.completeUploadExternal',
+    { files: [{ id: step1.file_id, title: title || name }], channel_id: channelId },
+    'POST',
+  );
+  return { ok: true, name };
 }

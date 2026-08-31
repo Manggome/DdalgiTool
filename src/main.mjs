@@ -25,7 +25,7 @@ import {
 } from './agent.mjs';
 import { PreviewServer } from './preview-server.mjs';
 import { setMeterListener, meterStats } from './metering.mjs';
-import { loadProject, saveProjectLinks } from './project.mjs';
+import { loadProject, saveProjectLinks, unityProjects } from './project.mjs';
 import { syncIndex, indexStatus } from './indexer.mjs';
 import { checkUpdate, downloadUpdate, releaseFolderId } from './updater.mjs';
 import { routeRequest, routerHint } from './router.mjs';
@@ -390,6 +390,12 @@ ipcMain.handle('pb:preview:stop', () => {
   resetPreviewErrors();
 });
 
+/** 현재 미리보기 파일을 Finder/탐색기에서 보여 준다. */
+ipcMain.handle('pb:preview:reveal', (_e, rel) => {
+  if (!workDir || !rel) return;
+  shell.showItemInFolder(path.join(workDir, rel));
+});
+
 ipcMain.handle('pb:preview:errors', () => previewErrors.slice());
 
 ipcMain.handle('pb:preview:clearErrors', () => {
@@ -523,6 +529,17 @@ ipcMain.handle('pb:readGuide', (_e, which) => {
     return fs.readFileSync(target, 'utf-8');
   } catch (e) {
     return `문서를 읽을 수 없습니다: ${e.message}`;
+  }
+});
+
+/** 스킬 상세(SKILL.md) — ⚡ 메뉴의 ℹ 버튼용. */
+ipcMain.handle('pb:readSkill', (_e, name) => {
+  if (!/^[a-z-]+$/.test(String(name))) return '잘못된 스킬 이름입니다.';
+  try {
+    const raw = fs.readFileSync(path.join(SKILLS_DIR, name, 'SKILL.md'), 'utf-8');
+    return raw.replace(/^---[\s\S]*?---\n/, ''); // frontmatter 는 사용자에게 불필요
+  } catch (e) {
+    return `스킬 문서를 읽을 수 없습니다: ${e.message}`;
   }
 });
 
@@ -687,7 +704,7 @@ async function openExternalPage(url, where) {
     return { where: 'browser' };
   }
 }
-setToolContext({ openPage: openExternalPage });
+setToolContext({ openPage: openExternalPage, openExternal: (url) => shell.openExternal(url) });
 
 // 외부 서비스 쓰기(시트/슬랙/트렐로)는 권한 모드와 무관하게 항상 이 창으로 승인을 받는다.
 setWriteApproval(async (title, summary) => {
@@ -1008,9 +1025,10 @@ async function runAsk(convId, prompt, attachments, opts) {
   let fullPrompt = prompt;
   // 내장 문서·스킬 폴더는 작업 폴더 밖이므로 항상 접근 권한을 열어 준다.
   const extraDirs = [KNOWLEDGE_DIR, SKILLS_DIR];
-  // 유니티 프로젝트(코드·깃)도 읽을 수 있게 연다.
-  const unityPath = loadProject(workDir)?.unity?.project_path;
-  if (unityPath && isUsableDir(unityPath)) extraDirs.push(unityPath);
+  // 유니티 프로젝트(코드·깃)도 읽을 수 있게 연다 — 복수 프로젝트 지원.
+  for (const up of unityProjects(loadProject(workDir))) {
+    if (isUsableDir(up.path)) extraDirs.push(up.path);
+  }
 
   if (attachments?.length) {
     const lines = attachments.map((a) => {
@@ -1105,10 +1123,10 @@ ipcMain.handle('pb:ask', (_e, convId, prompt, attachments, opts) =>
 );
 
 /** 작업이 끝났을 때 알림. force 면 창을 보고 있어도 알린다(다른 탭에서 끝난 경우). */
-ipcMain.handle('pb:notifyDone', (_e, { title, body, force }) => {
+ipcMain.handle('pb:notifyDone', (_e, { title, body }) => {
   try {
     if (!Notification.isSupported()) return;
-    if (win && win.isFocused() && !force && !process.env.PB_DEV_FORCE_NOTIFY) return;
+    // 창을 보고 있어도 OS 알림으로 확실히 알린다 (사용자 요청 — 인앱 토스트만으로는 놓침).
     const n = new Notification({ title: title || '딸각기획', body: body || '작업이 끝났습니다.' });
     n.on('click', () => {
       if (win) {
