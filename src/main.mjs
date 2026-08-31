@@ -132,6 +132,14 @@ function createWindow() {
 app.whenReady().then(
   () => {
     flog('=== app ready ===');
+    // dev 실행(npx electron .)에서는 번들 아이콘이 없어 Dock 에 Electron 기본이 뜬다 — 직접 지정.
+    if (process.platform === 'darwin' && !app.isPackaged) {
+      try {
+        app.dock.setIcon(path.join(__dirname, '..', 'build', 'icon.png'));
+      } catch {
+        /* noop */
+      }
+    }
     createWindow();
   },
   (e) => flog('whenReady 실패: ' + String(e)),

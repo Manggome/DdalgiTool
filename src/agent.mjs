@@ -177,6 +177,54 @@ const ddalgiTools = createSdkMcpServer({
       },
     ),
     tool(
+      'doc_insert_after',
+      '[쓰기·승인 필요] 구글 독스에서 find 문구가 든 문단 "뒤에" 새 문단들을 삽입합니다. 새 문단은 그 문단의 서식(폰트·색·목록 글리프·중첩 단계)을 그대로 상속합니다 — 양식 문서를 복제해 채울 때 서식을 100% 유지하는 핵심 도구. ●문단 뒤에 넣으면 ●로, ○문단 뒤에 넣으면 ○로 들어갑니다.',
+      {
+        doc_id: z.string(),
+        find: z.string().describe('기준 문단을 특정할 문구 (이 문단의 서식을 상속)'),
+        text: z.string().describe('삽입할 내용 — 여러 문단은 줄바꿈으로 구분'),
+        nth: z.number().optional().describe('find 가 여러 문단과 일치하면 몇 번째(1부터)를 기준으로 할지'),
+      },
+      async ({ doc_id, find, text: body, nth }) => {
+        try {
+          return await approvedWrite(
+            '구글 독스 문단 삽입',
+            `문서 ${doc_id}\n"${find.slice(0, 100)}" 문단 뒤에 ${body.split('\n').length}개 문단 삽입 (서식 상속):\n${body.slice(0, 300)}`,
+            async () => {
+              const r = await g.docInsertAfter(doc_id, find, body, nth ?? 1);
+              return r.ok ? `삽입 완료 (${r.lines}개 문단, 기준 문단 서식 상속)` : `실패: ${r.reason}`;
+            },
+          );
+        } catch (e) {
+          return errText(e);
+        }
+      },
+    ),
+    tool(
+      'doc_delete_paragraph',
+      '[쓰기·승인 필요] 구글 독스에서 find 문구가 든 문단을 통째로 지웁니다 (양식 복제 후 예시·플레이스홀더 줄 정리용). find 는 유일한 문구로.',
+      {
+        doc_id: z.string(),
+        find: z.string(),
+        all: z.boolean().optional().describe('true 면 일치하는 모든 문단 삭제'),
+        nth: z.number().optional().describe('여러 문단 일치 시 몇 번째(1부터)를 지울지'),
+      },
+      async ({ doc_id, find, all, nth }) => {
+        try {
+          return await approvedWrite(
+            '구글 독스 문단 삭제',
+            `문서 ${doc_id}\n"${find.slice(0, 120)}" 문단 삭제${all ? ' (일치 전부)' : ''}`,
+            async () => {
+              const n = await g.docDeleteParagraph(doc_id, find, !!all, nth ?? 1);
+              return n ? `삭제 완료 (${n}개 문단)` : '일치하는 문단이 없습니다.';
+            },
+          );
+        } catch (e) {
+          return errText(e);
+        }
+      },
+    ),
+    tool(
       'doc_replace',
       '[쓰기·승인 필요] 구글 독스에서 find 문자열을 전부 replace 로 바꿉니다. 의도한 곳만 바뀌도록 find 는 문서에서 유일한(충분히 긴) 문구를 쓰세요. 바꾸기 전에 doc_read 로 원문을 확인하세요.',
       {
@@ -614,10 +662,15 @@ function buildAppendPrompt(knowledgeDir, skillsDir) {
     '## 연동 도구 (mcp__ddalgi__*)',
     '구글 드라이브/독스/시트·슬랙·트렐로는 아래 내장 도구로 접근합니다 (WebFetch 로 열지 마세요):',
     '- 구글 읽기: drive_search → doc_read(독스) / slides_read(슬라이드) / sheet_read(범위 생략=탭 목록)',
-    '- 구글 쓰기[승인]: sheet_update / doc_replace·doc_append·doc_set_style·doc_set_indent·doc_set_bullets(독스 수정·제목/들여쓰기/목록) / slides_replace·slides_add_slide(슬라이드 수정) / drive_create(새 독스·슬라이드·시트)',
+    '- 구글 쓰기[승인]: sheet_update / doc_replace·doc_append·doc_insert_after(서식 상속 삽입)·doc_delete_paragraph·doc_set_style·doc_set_indent·doc_set_bullets / slides_replace·slides_add_slide(슬라이드 수정) / drive_create(새 독스·슬라이드·시트)',
     '- 구글 파일 관리[승인]: drive_copy(사본) / drive_rename(이름 변경) / drive_move(폴더 이동)',
     '- **삭제 금지**: 어떤 파일·카드도 삭제·보관하지 않습니다. 삭제가 필요해 보이면 drive_rename/trello_card_update 로 이름 앞에 `[삭제용] ` 을 붙여 표시만 하고, 실제 삭제는 사람이 합니다.',
     '- open_page: 사용자가 화면으로 직접 확인해야 할 때(시트·문서·트렐로 보드) 해당 URL 을 오른쪽 패널에 띄웁니다.',
+    '',
+    '## 새 기획서는 양식 복제로',
+    '- 새 구글 독스 기획서를 만들 때 drive_create 로 빈 문서를 만들지 마세요. **양식 문서를 drive_copy** 하고,',
+    '  제목·표지는 doc_replace 로 치환, 본문은 **doc_insert_after** 로 양식 문단 뒤에 끼워 넣어 서식(●○■ 목록·폰트)을 상속받으세요.',
+    '  남은 예시 줄은 doc_delete_paragraph 로 정리합니다. 상세 절차: skills/design-doc/references/new-doc.md',
     '',
     '## 시트 수식 규칙',
     '- 시트를 수정하기 전, 대상 컬럼에 수식이 있는지 sheet_read 의 formulas=true 로 먼저 확인합니다.',
@@ -681,6 +734,8 @@ const DDALGI_WRITE_TOOLS = [
   'mcp__ddalgi__doc_append',
   'mcp__ddalgi__doc_replace',
   'mcp__ddalgi__doc_set_style',
+  'mcp__ddalgi__doc_insert_after',
+  'mcp__ddalgi__doc_delete_paragraph',
   'mcp__ddalgi__doc_set_indent',
   'mcp__ddalgi__doc_set_bullets',
   'mcp__ddalgi__slides_replace',
