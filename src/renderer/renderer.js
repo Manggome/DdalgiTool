@@ -75,6 +75,10 @@ const el = {
   pUnityPath: $('#pUnityPath'),
   idxSync: $('#idxSync'),
   idxState: $('#idxState'),
+  uFolder: $('#uFolder'),
+  uSave: $('#uSave'),
+  uCheck: $('#uCheck'),
+  uState: $('#uState'),
   waList: $('#waList'),
   permModal: $('#permModal'),
   permTool: $('#permTool'),
@@ -1928,6 +1932,13 @@ async function refreshConn(withProject = false) {
     /* noop */
   }
 
+  // 앱 업데이트 — 릴리스 폴더 프리필
+  try {
+    el.uFolder.value = (await pb.upGetFolder()) || '';
+  } catch {
+    /* noop */
+  }
+
   // 인덱스 상태
   if (st.index?.syncedAt) {
     const c = st.index.counts || {};
@@ -2009,6 +2020,13 @@ function renderConnPicker(listEl, items, sel, extra) {
     }
     listEl.append(row);
   }
+}
+
+async function doUpdateDownload(version) {
+  showToast(`v${version} 내려받는 중… (수백 MB — 잠시 걸립니다)`);
+  const r = await pb.upDownload();
+  if (r.ok) showToast(`v${r.version} 다운로드 완료 — 설치 파일을 열었습니다. 설치 후 앱을 다시 실행하세요.`);
+  else showToast('업데이트 다운로드 실패 — ' + (r.error || ''), null, 'warn');
 }
 
 function openConn() {
@@ -2097,6 +2115,20 @@ function bindConn() {
   el.pUnityPick.addEventListener('click', async () => {
     const d = await pb.connPickUnityDir();
     if (d) el.pUnityPath.textContent = d;
+  });
+
+  el.uSave.addEventListener('click', async () => {
+    await pb.upSetFolder(parseFolderId(el.uFolder.value));
+    showToast('릴리스 폴더 저장 완료');
+  });
+  el.uCheck.addEventListener('click', async () => {
+    stateEl(el.uState, '확인 중…');
+    const r = await pb.upCheck();
+    if (r?.version && !r.skip && !r.upToDate) {
+      stateEl(el.uState, `새 버전 ${r.version} 발견!`, 'ok');
+      if (await confirmDialog(`새 버전 ${r.version} 이 있습니다. 지금 내려받을까요?`)) void doUpdateDownload(r.version);
+    } else if (r?.upToDate) stateEl(el.uState, `최신입니다 (v${r.current})`, 'ok');
+    else stateEl(el.uState, r?.reason || '확인 실패', 'err');
   });
 
   el.idxSync.addEventListener('click', async () => {
@@ -2397,6 +2429,9 @@ function bind() {
       void pb.permissionReply({ id: p.id, decision: 'allow' });
     }
     showNextPerm();
+  });
+  pb.onUpdateAvailable(({ version }) => {
+    showToast(`🍓 새 버전 ${version} — 누르면 내려받습니다`, () => void doUpdateDownload(version));
   });
   pb.onAutoAllowed(({ title, summary }) => {
     showToast(`✓ 자동 허용 — ${title}: ${summary}`);
