@@ -75,6 +75,10 @@ const el = {
   pUnityPath: $('#pUnityPath'),
   idxSync: $('#idxSync'),
   idxState: $('#idxState'),
+  updateBar: $('#updateBar'),
+  updateVer: $('#updateVer'),
+  updateGo: $('#updateGo'),
+  updateLater: $('#updateLater'),
   uFolder: $('#uFolder'),
   uSave: $('#uSave'),
   uCheck: $('#uCheck'),
@@ -2022,11 +2026,29 @@ function renderConnPicker(listEl, items, sel, extra) {
   }
 }
 
-async function doUpdateDownload(version) {
-  showToast(`v${version} 내려받는 중… (수백 MB — 잠시 걸립니다)`);
+/** 업데이트 배너 — 사이드바 하단에 고정, 처리 전까지 유지된다. */
+function showUpdateBar(version) {
+  el.updateVer.textContent = `v${version}`;
+  el.updateGo.textContent = '업데이트';
+  el.updateGo.disabled = false;
+  el.updateBar.classList.remove('hidden', 'busy');
+}
+
+async function doUpdateDownload() {
+  el.updateGo.disabled = true;
+  el.updateGo.textContent = '내려받는 중…';
+  el.updateBar.classList.add('busy');
   const r = await pb.upDownload();
-  if (r.ok) showToast(`v${r.version} 다운로드 완료 — 설치 파일을 열었습니다. 설치 후 앱을 다시 실행하세요.`);
-  else showToast('업데이트 다운로드 실패 — ' + (r.error || ''), null, 'warn');
+  el.updateBar.classList.remove('busy');
+  if (r.ok) {
+    el.updateGo.textContent = '설치 파일 열림 ✓';
+    showToast(`v${r.version} 다운로드 완료 — 설치 후 앱을 다시 실행하세요.`);
+    setTimeout(() => el.updateBar.classList.add('hidden'), 8000);
+  } else {
+    el.updateGo.disabled = false;
+    el.updateGo.textContent = '다시 시도';
+    showToast('업데이트 다운로드 실패 — ' + (r.error || ''), null, 'warn');
+  }
 }
 
 function openConn() {
@@ -2126,7 +2148,8 @@ function bindConn() {
     const r = await pb.upCheck();
     if (r?.version && !r.skip && !r.upToDate) {
       stateEl(el.uState, `새 버전 ${r.version} 발견!`, 'ok');
-      if (await confirmDialog(`새 버전 ${r.version} 이 있습니다. 지금 내려받을까요?`)) void doUpdateDownload(r.version);
+      showUpdateBar(r.version);
+      el.connModal.classList.add('hidden');
     } else if (r?.upToDate) stateEl(el.uState, `최신입니다 (v${r.current})`, 'ok');
     else stateEl(el.uState, r?.reason || '확인 실패', 'err');
   });
@@ -2430,9 +2453,9 @@ function bind() {
     }
     showNextPerm();
   });
-  pb.onUpdateAvailable(({ version }) => {
-    showToast(`🍓 새 버전 ${version} — 누르면 내려받습니다`, () => void doUpdateDownload(version));
-  });
+  pb.onUpdateAvailable(({ version }) => showUpdateBar(version));
+  el.updateGo.addEventListener('click', () => void doUpdateDownload());
+  el.updateLater.addEventListener('click', () => el.updateBar.classList.add('hidden'));
   pb.onAutoAllowed(({ title, summary }) => {
     showToast(`✓ 자동 허용 — ${title}: ${summary}`);
   });

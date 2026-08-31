@@ -2223,3 +2223,60 @@ mark.find-hit.current {
   font-weight: 600;
   margin-left: 6px;
 }
+
+/* 업데이트 배너 — 사이드바 하단 고정, 처리 전까지 사라지지 않는다 */
+.update-bar {
+  background: var(--bg-3);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 4px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.update-bar.busy {
+  border-color: var(--warn);
+}
+
+.update-text {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.update-text b {
+  color: var(--accent);
+}
+
+.update-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.update-go {
+  flex: 1;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 7px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.update-go:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.update-later {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--text-dim);
+  padding: 5px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
