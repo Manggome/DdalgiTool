@@ -401,3 +401,36 @@ export async function docSetBullets(docId, find, { through, style = '불릿', re
   }
   return { ok: true };
 }
+
+/**
+ * find 문단 "뒤에" 새 문단들을 삽입한다 — 새 문단은 find 문단의 스타일(폰트·색·목록·중첩)을 그대로 상속한다.
+ * 양식 문서를 복제해 채울 때 100% 동일한 서식을 얻는 핵심 도구. 여러 줄은 \n 으로 구분.
+ * 호출 전 반드시 앱 승인 절차를 거칠 것.
+ */
+export async function docInsertAfter(docId, find, textBlock, nth = 1) {
+  const paras = await docParagraphs(docId);
+  const matches = paras.filter((x) => x.text.includes(find));
+  const p = matches[Math.max(1, nth) - 1];
+  if (!p) return { ok: false, reason: `"${find}" ${nth}번째 일치 문단 없음 (총 ${matches.length}개)` };
+  // 문단 끝의 줄바꿈 앞(end-1)에 "\n+내용" 을 넣으면, 새 문단들이 원 문단의 서식·목록을 상속한다.
+  await docBatch(docId, [{ insertText: { location: { index: p.end - 1 }, text: '\n' + textBlock } }]);
+  return { ok: true, lines: textBlock.split('\n').length };
+}
+
+/** find 문단(들)을 통째로 삭제한다 — 양식 복제 후 예시 줄 정리용. 호출 전 반드시 앱 승인 절차를 거칠 것. */
+export async function docDeleteParagraph(docId, find, all = false, nth = 1) {
+  const paras = await docParagraphs(docId);
+  const matches = paras.filter((x) => x.text.includes(find));
+  if (!matches.length) return 0;
+  const targets = all ? matches : [matches[Math.max(1, nth) - 1]].filter(Boolean);
+  if (!targets.length) return 0;
+  const bodyEnd = paras[paras.length - 1].end;
+  // 인덱스가 밀리지 않게 뒤에서부터 지운다. 문서 마지막 줄바꿈은 지울 수 없으므로 한 칸 남긴다.
+  const requests = [...targets]
+    .sort((a, b) => b.start - a.start)
+    .map((x) => ({
+      deleteContentRange: { range: { startIndex: x.start, endIndex: x.end === bodyEnd ? x.end - 1 : x.end } },
+    }));
+  await docBatch(docId, requests);
+  return targets.length;
+}
