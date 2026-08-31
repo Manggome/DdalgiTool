@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#EF5570"/>
-      <stop offset="1" stop-color="#C22B4A"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F76A7F"/>
+      <stop offset="1" stop-color="#C2274A"/>
     </linearGradient>
     <linearGradient id="leaf" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#63C97D"/>
@@ -10,17 +10,16 @@
     </linearGradient>
   </defs>
 
-  <!-- 꽉 찬 배경 — macOS 가 스쿼클로 마스킹한다 (여백을 남기면 OS 가 흰 판을 깐다) -->
-  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <!-- PB 아이콘과 같은 지오메트리: 88px 투명 여백 + rx190 라운드 스쿼클 -->
+  <rect x="88" y="88" width="848" height="848" rx="190" ry="190" fill="url(#bg)"/>
 
-  <!-- 크림색 딸기 실루엣 -->
-  <g transform="translate(512 560) scale(1.02) translate(-512 -560)">
+  <!-- 크림 딸기 (스쿼클 안 중앙) -->
+  <g transform="translate(512 545) scale(0.8) translate(-512 -560)">
     <path fill="#FFF3E0" d="M512 900
       C 356 900 228 766 228 584
       C 228 464 300 390 512 390
       C 724 390 796 464 796 584
       C 796 766 668 900 512 900 Z"/>
-    <!-- 씨앗 (배경색과 같은 레드) -->
     <g fill="#D9395A">
       <ellipse cx="398" cy="530" rx="17" ry="25"/>
       <ellipse cx="512" cy="510" rx="17" ry="25"/>
@@ -34,16 +33,13 @@
       <ellipse cx="618" cy="742" rx="17" ry="25"/>
       <ellipse cx="512" cy="848" rx="15" ry="21"/>
     </g>
-    <!-- 잎 -->
     <g fill="url(#leaf)">
       <path d="M512 412 C 444 412 380 390 342 342 C 416 334 460 350 512 390 Z"/>
       <path d="M512 412 C 580 412 644 390 682 342 C 608 334 564 350 512 390 Z"/>
       <path d="M512 420 C 468 394 438 350 438 294 C 490 318 510 354 512 420 Z"/>
       <path d="M512 420 C 556 394 586 350 586 294 C 534 318 514 354 512 420 Z"/>
     </g>
-    <!-- 줄기 -->
     <rect x="495" y="216" width="34" height="140" rx="17" fill="#3E9457"/>
-    <!-- 하이라이트 -->
     <ellipse cx="372" cy="486" rx="54" ry="30" fill="#FFFFFF" opacity="0.5" transform="rotate(-24 372 486)"/>
   </g>
 </svg>
