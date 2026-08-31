@@ -104,3 +104,36 @@ export async function trelloCardUpdate(cardId, { listId, name } = {}) {
   const d = await call(`cards/${cardId}`, params, 'PUT');
   return { id: d.id, name: d.name, idList: d.idList };
 }
+
+/** 카드 첨부 목록. */
+export async function trelloCardAttachments(cardId) {
+  const d = await call(`cards/${cardId}/attachments`, { fields: 'name,url,mimeType,bytes,isUpload' });
+  return d.map((a) => ({ id: a.id, name: a.name, url: a.url, mimeType: a.mimeType || '', bytes: a.bytes || 0, isUpload: !!a.isUpload }));
+}
+
+/** 카드에 URL 첨부(링크·이미지 주소)를 추가한다. 호출 전 반드시 앱 승인 절차를 거칠 것. */
+export async function trelloAttachUrl(cardId, url, name) {
+  const d = await call(`cards/${cardId}/attachments`, { url, ...(name ? { name } : {}) }, 'POST');
+  return { id: d.id, name: d.name };
+}
+
+const MAX_IMG_BYTES = 2 * 1024 * 1024; // 에이전트 컨텍스트 보호 — 2MB 초과 이미지는 내려받지 않는다
+
+/**
+ * 이미지 첨부를 base64 로 내려받는다 (에이전트가 직접 보게).
+ * 트렐로에 업로드된 파일은 OAuth 헤더가 필요하고, 외부 URL 첨부는 그대로 받는다.
+ */
+export async function trelloDownloadImage(att) {
+  const c = auth();
+  const isTrelloHosted = /^https:\/\/(api\.)?trello\.com\//.test(att.url);
+  const headers = isTrelloHosted
+    ? { authorization: `OAuth oauth_consumer_key="${c.key}", oauth_token="${c.token}"` }
+    : {};
+  const r = await meteredFetch('trello', att.url, { headers });
+  if (!r.ok) throw new Error(`첨부 다운로드 실패 ${r.status}`);
+  const mime = r.headers.get('content-type')?.split(';')[0] || att.mimeType || 'image/png';
+  if (!mime.startsWith('image/')) throw new Error('이미지가 아닌 첨부: ' + mime);
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (buf.length > MAX_IMG_BYTES) throw new Error(`이미지가 너무 큼 (${Math.round(buf.length / 1024)}KB > 2MB)`);
+  return { base64: buf.toString('base64'), mimeType: mime };
+}
