@@ -75,12 +75,15 @@ const el = {
   pUnityPath: $('#pUnityPath'),
   idxSync: $('#idxSync'),
   idxState: $('#idxState'),
+  waList: $('#waList'),
   permModal: $('#permModal'),
   permTool: $('#permTool'),
   permTitle: $('#permTitle'),
   permSummary: $('#permSummary'),
   permDesc: $('#permDesc'),
   permAllow: $('#permAllow'),
+  permAllowAll: $('#permAllowAll'),
+  permCount: $('#permCount'),
   permAlways: $('#permAlways'),
   permDeny: $('#permDeny'),
   ctxUsage: $('#ctxUsage'),
@@ -1816,6 +1819,11 @@ function showNextPerm() {
   el.permSummary.textContent = p.summary || '';
   el.permSummary.classList.toggle('hidden', !p.summary);
   el.permDesc.textContent = p.description || p.reason || '';
+  const more = permQueue.length - 1;
+  el.permCount.textContent = more > 0 ? `+ 대기 ${more}건` : '';
+  el.permCount.classList.toggle('hidden', more <= 0);
+  el.permAllowAll.textContent = `모두 허용 (${permQueue.length})`;
+  el.permAllowAll.classList.toggle('hidden', permQueue.length < 2);
   el.permModal.classList.remove('hidden');
 }
 
@@ -1892,6 +1900,32 @@ async function refreshConn(withProject = false) {
     el.tToken.classList.remove('hidden');
     el.tSave.classList.remove('hidden');
     el.tOut.classList.add('hidden');
+  }
+
+  // 쓰기 자동 허용 목록
+  try {
+    const keys = await pb.connWriteAllow('get');
+    el.waList.innerHTML = '';
+    if (!keys.length) {
+      const sp = document.createElement('span');
+      sp.className = 'conn-state';
+      sp.textContent = '없음 — 승인창에서 [이 도구는 항상 허용]을 누르면 여기에 쌓입니다';
+      el.waList.append(sp);
+    } else {
+      for (const k of keys) {
+        const b = document.createElement('button');
+        b.className = 'ghost sm';
+        b.textContent = `${k} ✕`;
+        b.title = '자동 허용 해제 — 다시 물어봅니다';
+        b.addEventListener('click', async () => {
+          await pb.connWriteAllow('clear', k);
+          void refreshConn();
+        });
+        el.waList.append(b);
+      }
+    }
+  } catch {
+    /* noop */
   }
 
   // 인덱스 상태
@@ -2357,6 +2391,16 @@ function bind() {
   el.permAllow.addEventListener('click', () => replyPerm('allow'));
   el.permAlways.addEventListener('click', () => replyPerm('always'));
   el.permDeny.addEventListener('click', () => replyPerm('deny'));
+  el.permAllowAll.addEventListener('click', () => {
+    while (permQueue.length) {
+      const p = permQueue.shift();
+      void pb.permissionReply({ id: p.id, decision: 'allow' });
+    }
+    showNextPerm();
+  });
+  pb.onAutoAllowed(({ title, summary }) => {
+    showToast(`✓ 자동 허용 — ${title}: ${summary}`);
+  });
   pb.onPermissionAsk((p) => {
     permQueue.push(p);
     if (permQueue.length === 1) showNextPerm();

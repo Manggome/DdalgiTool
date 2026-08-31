@@ -643,9 +643,10 @@ function askPermission(toolName, input, opts) {
     description: opts?.description || '',
     reason: opts?.decisionReason || '',
     summary: summarizeToolInput(toolName, input),
+    writeKey: opts?.writeKey || '',
   };
   return new Promise((resolve) => {
-    pendingPerms.set(id, { resolve, suggestions: opts?.suggestions });
+    pendingPerms.set(id, { resolve, suggestions: opts?.suggestions, writeKey: opts?.writeKey });
     send('pb:permissionAsk', payload);
     // 사용자가 턴을 중지하면 대기 중인 확인도 정리한다.
     opts?.signal?.addEventListener('abort', () => {
@@ -686,13 +687,20 @@ setWriteApproval(async (title, summary) => {
     flog('DEV 자동 승인: ' + title);
     return true;
   }
+  // 사용자가 [이 도구는 항상 허용] 으로 저장한 종류는 묻지 않고 토스트로만 알린다.
+  if (loadConfig()?.writeAllow?.[title]) {
+    flog('자동 허용(항상 허용 저장됨): ' + title);
+    send('pb:autoAllowed', { title, summary: String(summary).slice(0, 160) });
+    return true;
+  }
   const r = await askPermission(
     'ExternalWrite',
     { command: summary },
     {
       title,
       displayName: '외부 서비스에 쓰기',
-      description: '외부 서비스(구글 시트/슬랙/트렐로)에 실제로 기록됩니다. 내용을 확인하세요.',
+      description: '외부 서비스(구글/슬랙/트렐로)에 실제로 기록됩니다. [항상 허용]을 누르면 이 종류는 다시 묻지 않습니다 (연동 설정에서 해제 가능).',
+      writeKey: title,
     },
   );
   return r?.behavior === 'allow';
@@ -812,6 +820,17 @@ ipcMain.handle('conn:projectSave', (_e, links) => {
 
 ipcMain.handle('conn:syncIndex', () => runIndexSync(true));
 
+ipcMain.handle('conn:writeAllow', (_e, action, key) => {
+  const cfg = loadConfig() ?? {};
+  const cur = { ...(cfg.writeAllow ?? {}) };
+  if (action === 'clear') {
+    if (key) delete cur[key];
+    else for (const k of Object.keys(cur)) delete cur[k];
+    saveConfig({ ...cfg, writeAllow: cur });
+  }
+  return Object.keys(cur);
+});
+
 ipcMain.handle('conn:meter', () => meterStats());
 
 ipcMain.handle('pb:permissionReply', (_e, { id, decision }) => {
@@ -821,7 +840,12 @@ ipcMain.handle('pb:permissionReply', (_e, { id, decision }) => {
   if (decision === 'allow') {
     p.resolve({ behavior: 'allow' });
   } else if (decision === 'always') {
-    // 이 세션 동안 같은 도구를 다시 묻지 않게 한다.
+    // 외부 쓰기 종류면 설정에 저장 — 이후 자동 허용(토스트 알림), 연동 설정에서 해제 가능.
+    if (p.writeKey) {
+      const cfg = loadConfig() ?? {};
+      saveConfig({ ...cfg, writeAllow: { ...(cfg.writeAllow ?? {}), [p.writeKey]: true } });
+      flog('항상 허용 저장: ' + p.writeKey);
+    }
     p.resolve({ behavior: 'allow', ...(p.suggestions ? { updatedPermissions: p.suggestions } : {}) });
   } else {
     p.resolve({ behavior: 'deny', message: '사용자가 이 작업을 거부했습니다.' });
