@@ -434,3 +434,43 @@ export async function docDeleteParagraph(docId, find, all = false, nth = 1) {
   await docBatch(docId, requests);
   return targets.length;
 }
+
+/**
+ * 드라이브에 일반 파일 업로드 (설치 파일 등 대용량 — resumable 방식).
+ * 릴리스 배포용. 호출 전 반드시 앱 승인 절차를 거칠 것 (내부 배포 스크립트 제외).
+ */
+export async function driveUploadFile(folderId, filePath, name) {
+  const fs = await import('node:fs');
+  const pathMod = await import('node:path');
+  const token = await googleAccessToken();
+  const fileName = name || pathMod.basename(filePath);
+  const size = fs.statSync(filePath).size;
+
+  // 1단계: 업로드 세션 시작
+  const init = await meteredFetch(
+    'google',
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,webViewLink',
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json; charset=UTF-8',
+        'x-upload-content-length': String(size),
+      },
+      body: JSON.stringify({ name: fileName, ...(folderId ? { parents: [folderId] } : {}) }),
+    },
+  );
+  if (!init.ok) throw new Error(`업로드 세션 시작 실패 (${init.status})`);
+  const session = init.headers.get('location');
+  if (!session) throw new Error('업로드 세션 URL 없음');
+
+  // 2단계: 본문 전송 (한 번에 — 200MB 급까지 무난)
+  const put = await fetch(session, {
+    method: 'PUT',
+    headers: { 'content-length': String(size) },
+    body: fs.readFileSync(filePath),
+  });
+  const d = await put.json();
+  if (!put.ok) throw new Error(`업로드 실패 (${put.status}): ${JSON.stringify(d).slice(0, 200)}`);
+  return { id: d.id, name: d.name, link: d.webViewLink };
+}

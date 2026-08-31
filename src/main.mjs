@@ -27,7 +27,7 @@ import { PreviewServer } from './preview-server.mjs';
 import { setMeterListener, meterStats } from './metering.mjs';
 import { loadProject, saveProjectLinks, unityProjects } from './project.mjs';
 import { syncIndex, indexStatus } from './indexer.mjs';
-import { checkUpdate, downloadUpdate, releaseFolderId } from './updater.mjs';
+import { checkUpdate, downloadUpdate, releaseFolderId, publishToDrive } from './updater.mjs';
 import { routeRequest, routerHint } from './router.mjs';
 import {
   importClientSecret,
@@ -1230,6 +1230,24 @@ ipcMain.handle('pb:authLogout', async () => {
     return { ok: false, error: e.message };
   }
 });
+
+// ---- 배포용: 설치 파일을 드라이브 릴리스 폴더에 올리고 종료한다 (PB_DEV_PUBLISH=1) ----
+
+if (process.env.PB_DEV_PUBLISH) {
+  app.whenReady().then(() => {
+    setTimeout(async () => {
+      try {
+        const done = await publishToDrive(workDir, path.join(__dirname, '..', 'dist-app'));
+        flog('드라이브 릴리스 업로드 완료: ' + done.map((d) => d.name).join(', '));
+        console.log('DRIVE_PUBLISH_OK ' + done.map((d) => d.name).join(', '));
+      } catch (e) {
+        flog('드라이브 릴리스 업로드 실패: ' + e.message);
+        console.log('DRIVE_PUBLISH_FAIL ' + e.message);
+      }
+      app.quit();
+    }, 4000);
+  });
+}
 
 // ---- 개발용: 프롬프트를 한 번 자동 실행한다 (PB_DEV_ASK=프롬프트, PB_DEV_ASK_OUT=결과파일). ----
 
