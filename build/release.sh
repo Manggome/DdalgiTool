@@ -15,4 +15,6 @@ gh release create "v$VER" \
   --title "딸기툴 $VER" \
   --notes "패치노트는 앱 사이드바의 버전을 눌러 확인하세요." \
   --latest
+# 드라이브 릴리스 폴더에도 업로드 (저장소가 비공개면 이 채널이 팀 배포 경로)
+PB_DEV_PUBLISH=1 npx electron . 2>/dev/null | grep DRIVE_PUBLISH || echo "(드라이브 업로드 생략/실패 — 릴리스 폴더 설정 확인)"
 echo "✅ 완료 — 팀원 앱이 12시간 내 자동 감지합니다"

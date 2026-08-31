@@ -95,3 +95,20 @@ export async function downloadUpdate(file) {
   fs.writeFileSync(dest, Buffer.from(await r.arrayBuffer()));
   return dest;
 }
+
+/** 배포자용: dist-app 의 현재 버전 설치 파일들을 드라이브 릴리스 폴더에 올린다. */
+export async function publishToDrive(workDir, distDir) {
+  const folderId = releaseFolderId(workDir);
+  if (!folderId) throw new Error('릴리스 폴더가 설정되지 않았습니다 (연동 설정 또는 project.yaml app_update.release_folder_id).');
+  const { driveUploadFile } = await import('./connectors/google.mjs');
+  const ver = app.getVersion();
+  const names = [`Ddalgi-${ver}-arm64.dmg`, `Ddalgi-${ver}-x64-setup.exe`];
+  const done = [];
+  for (const n of names) {
+    const p = path.join(distDir, n);
+    if (!fs.existsSync(p)) continue;
+    done.push(await driveUploadFile(folderId, p, n));
+  }
+  if (!done.length) throw new Error('올릴 설치 파일이 없습니다: ' + distDir);
+  return done;
+}
