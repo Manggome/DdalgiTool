@@ -220,6 +220,56 @@ const ddalgiTools = createSdkMcpServer({
       },
     ),
     tool(
+      'doc_set_indent',
+      '[쓰기·승인 필요] 구글 독스에서 find 문구가 든 문단의 들여쓰기를 level 단계로 맞춥니다 (1단계=36pt, 독스 UI와 동일. 0=해제).',
+      {
+        doc_id: z.string(),
+        find: z.string().describe('대상 문단을 특정할 문구'),
+        level: z.number().describe('0~5'),
+        all: z.boolean().optional().describe('true 면 일치하는 모든 문단'),
+      },
+      async ({ doc_id, find, level, all }) => {
+        try {
+          return await approvedWrite(
+            '구글 독스 들여쓰기',
+            `문서 ${doc_id}\n"${find.slice(0, 120)}" 문단 → 들여쓰기 ${level}단계${all ? ' (일치 전부)' : ''}`,
+            async () => {
+              const n = await g.docSetIndent(doc_id, find, level, !!all);
+              return n ? `적용 완료 (${n}개 문단)` : '일치하는 문단이 없습니다.';
+            },
+          );
+        } catch (e) {
+          return errText(e);
+        }
+      },
+    ),
+    tool(
+      'doc_set_bullets',
+      '[쓰기·승인 필요] 구글 독스에서 find 문단(through 지정 시 그 문단까지 연속 범위)을 목록(불릿/번호/체크박스)으로 만들거나 해제합니다. 중첩은 문단 들여쓰기를 따르므로 깊은 항목은 doc_set_indent 먼저.',
+      {
+        doc_id: z.string(),
+        find: z.string().describe('목록 시작 문단의 문구'),
+        through: z.string().optional().describe('목록 끝 문단의 문구 (생략 시 find 문단 하나만)'),
+        style: z.enum(['불릿', '번호', '체크박스']).optional().describe('기본 불릿'),
+        remove: z.boolean().optional().describe('true 면 목록 해제'),
+      },
+      async ({ doc_id, find, through, style, remove }) => {
+        try {
+          const what = remove ? '목록 해제' : `${style ?? '불릿'} 목록 적용`;
+          return await approvedWrite(
+            '구글 독스 목록',
+            `문서 ${doc_id}\n"${find.slice(0, 80)}"${through ? ` ~ "${through.slice(0, 80)}"` : ''} → ${what}`,
+            async () => {
+              const r = await g.docSetBullets(doc_id, find, { through, style: style ?? '불릿', remove: !!remove });
+              return r.ok ? `${what} 완료` : `실패: ${r.reason} — doc_read 로 원문을 확인하세요.`;
+            },
+          );
+        } catch (e) {
+          return errText(e);
+        }
+      },
+    ),
+    tool(
       'slides_replace',
       '[쓰기·승인 필요] 구글 슬라이드 전체에서 find 문자열을 replace 로 바꿉니다. slides_read 로 원문을 먼저 확인하고, 유일한 문구로 치환하세요.',
       { presentation_id: z.string(), find: z.string(), replace: z.string() },
@@ -528,7 +578,7 @@ function buildAppendPrompt(knowledgeDir, skillsDir) {
     '## 연동 도구 (mcp__ddalgi__*)',
     '구글 드라이브/독스/시트·슬랙·트렐로는 아래 내장 도구로 접근합니다 (WebFetch 로 열지 마세요):',
     '- 구글 읽기: drive_search → doc_read(독스) / slides_read(슬라이드) / sheet_read(범위 생략=탭 목록)',
-    '- 구글 쓰기[승인]: sheet_update / doc_replace·doc_append·doc_set_style(독스 수정·문단 스타일) / slides_replace·slides_add_slide(슬라이드 수정) / drive_create(새 독스·슬라이드·시트)',
+    '- 구글 쓰기[승인]: sheet_update / doc_replace·doc_append·doc_set_style·doc_set_indent·doc_set_bullets(독스 수정·제목/들여쓰기/목록) / slides_replace·slides_add_slide(슬라이드 수정) / drive_create(새 독스·슬라이드·시트)',
     '- 구글 파일 관리[승인]: drive_copy(사본) / drive_rename(이름 변경) / drive_move(폴더 이동)',
     '- **삭제 금지**: 어떤 파일·카드도 삭제·보관하지 않습니다. 삭제가 필요해 보이면 drive_rename/trello_card_update 로 이름 앞에 `[삭제용] ` 을 붙여 표시만 하고, 실제 삭제는 사람이 합니다.',
     '- open_page: 사용자가 화면으로 직접 확인해야 할 때(시트·문서·트렐로 보드) 해당 URL 을 오른쪽 패널에 띄웁니다.',
@@ -595,6 +645,8 @@ const DDALGI_WRITE_TOOLS = [
   'mcp__ddalgi__doc_append',
   'mcp__ddalgi__doc_replace',
   'mcp__ddalgi__doc_set_style',
+  'mcp__ddalgi__doc_set_indent',
+  'mcp__ddalgi__doc_set_bullets',
   'mcp__ddalgi__slides_replace',
   'mcp__ddalgi__slides_add_slide',
   'mcp__ddalgi__drive_copy',

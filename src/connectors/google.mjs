@@ -70,7 +70,18 @@ export async function docRead(docId, maxChars = 60000) {
           .replace(/\n$/, '');
         if (!text.trim()) continue;
         const h = /HEADING_(\d)/.exec(style);
-        lines.push(h ? `${'#'.repeat(Number(h[1]))} ${text}` : text);
+        // 들여쓰기(36pt=1단계)와 목록 중첩을 함께 표현한다 — 적용 결과를 읽기로 검증할 수 있게.
+        const indentPt = el.paragraph.paragraphStyle?.indentStart?.magnitude || 0;
+        const indentLv = Math.round(indentPt / 36);
+        if (h) {
+          lines.push(`${'#'.repeat(Number(h[1]))} ${text}`);
+        } else if (el.paragraph.bullet) {
+          // 불릿은 기본 36pt 가 있으므로 초과분만 중첩으로 센다.
+          const nest = Math.max(el.paragraph.bullet.nestingLevel || 0, Math.max(0, indentLv - 1));
+          lines.push(`${'  '.repeat(nest)}- ${text}`);
+        } else {
+          lines.push(`${'  '.repeat(indentLv)}${text}`);
+        }
       } else if (el.table) {
         for (const row of el.table.tableRows ?? []) {
           const cells = (row.tableCells ?? []).map((c) => {
@@ -314,4 +325,79 @@ export async function docSetParagraphStyle(docId, find, styleKo, all = false) {
     })),
   );
   return targets.length;
+}
+
+/** 문서의 문단 목록 [{text,start,end}] — find 매칭용 공통 헬퍼. */
+async function docParagraphs(docId) {
+  const d = await gget(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}`);
+  const out = [];
+  for (const el of d.body?.content ?? []) {
+    if (!el.paragraph) continue;
+    const text = (el.paragraph.elements ?? []).map((e) => e.textRun?.content ?? '').join('');
+    out.push({ text, start: el.startIndex, end: el.endIndex, bullet: !!el.paragraph.bullet });
+  }
+  return out;
+}
+
+/**
+ * find 문구가 포함된 문단의 들여쓰기를 level 단계(1단계=36pt, 독스 UI 들여쓰기 버튼과 동일)로 맞춘다.
+ * level 0 = 들여쓰기 해제. 호출 전 반드시 앱 승인 절차를 거칠 것.
+ */
+export async function docSetIndent(docId, find, level, all = false) {
+  const lv = Math.max(0, Math.min(5, Number(level) || 0));
+  const paras = await docParagraphs(docId);
+  const matches = paras.filter((p) => p.text.includes(find));
+  if (!matches.length) return 0;
+  const targets = all ? matches : [matches[0]];
+  await docBatch(
+    docId,
+    targets.map((p) => {
+      // 불릿 문단은 기본 들여쓰기가 이미 36pt 이므로, 단계를 그 위에 얹어야 실제로 밀린다.
+      const base = p.bullet ? 36 : 0;
+      const pt = base + lv * 36;
+      return {
+        updateParagraphStyle: {
+          range: { startIndex: p.start, endIndex: p.end },
+          paragraphStyle: {
+            indentStart: { magnitude: pt, unit: 'PT' },
+            indentFirstLine: { magnitude: pt, unit: 'PT' },
+          },
+          fields: 'indentStart,indentFirstLine',
+        },
+      };
+    }),
+  );
+  return targets.length;
+}
+
+const BULLET_PRESETS = {
+  불릿: 'BULLET_DISC_CIRCLE_SQUARE',
+  번호: 'NUMBERED_DECIMAL_ALPHA_ROMAN',
+  체크박스: 'BULLET_CHECKBOX',
+};
+
+/**
+ * find 문단(through 지정 시 그 문단까지의 범위)을 목록으로 만들거나(remove=false) 해제한다.
+ * 중첩 단계는 문단 들여쓰기를 따른다 — 깊게 넣으려면 docSetIndent 후 적용.
+ * 호출 전 반드시 앱 승인 절차를 거칠 것.
+ */
+export async function docSetBullets(docId, find, { through, style = '불릿', remove = false } = {}) {
+  const paras = await docParagraphs(docId);
+  const first = paras.find((p) => p.text.includes(find));
+  if (!first) return { ok: false, reason: `"${find}" 문단 없음` };
+  let end = first.end;
+  if (through) {
+    const last = paras.find((p) => p.start >= first.start && p.text.includes(through));
+    if (!last) return { ok: false, reason: `"${through}" 문단 없음 (find 이후 범위)` };
+    end = last.end;
+  }
+  const range = { startIndex: first.start, endIndex: end };
+  if (remove) {
+    await docBatch(docId, [{ deleteParagraphBullets: { range } }]);
+  } else {
+    const preset = BULLET_PRESETS[style];
+    if (!preset) throw new Error(`지원하지 않는 목록 유형: ${style} (가능: ${Object.keys(BULLET_PRESETS).join(', ')})`);
+    await docBatch(docId, [{ createParagraphBullets: { range, bulletPreset: preset } }]);
+  }
+  return { ok: true };
 }
