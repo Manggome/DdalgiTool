@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('pb', {
   openWorkDir: () => ipcRenderer.invoke('pb:openWorkDir'),
   readGuide: (which) => ipcRenderer.invoke('pb:readGuide', which),
   openLog: () => ipcRenderer.invoke('pb:openLog'),
+  readSkill: (name) => ipcRenderer.invoke('pb:readSkill', name),
 
   // 대화
   ask: (convId, prompt, attachments, opts) => ipcRenderer.invoke('pb:ask', convId, prompt, attachments, opts),
@@ -44,6 +45,7 @@ contextBridge.exposeInMainWorld('pb', {
   previewStop: () => ipcRenderer.invoke('pb:preview:stop'),
   previewErrors: () => ipcRenderer.invoke('pb:preview:errors'),
   previewClearErrors: () => ipcRenderer.invoke('pb:preview:clearErrors'),
+  previewReveal: (rel) => ipcRenderer.invoke('pb:preview:reveal', rel),
 
   // 연동 설정 (구글·슬랙·트렐로)
   connStatus: () => ipcRenderer.invoke('conn:status'),

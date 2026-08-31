@@ -2280,3 +2280,62 @@ mark.find-hit.current {
   font-size: 12px;
   cursor: pointer;
 }
+
+/* 연동 설정 — 복수 항목 칩 목록 */
+.conn-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 6px;
+}
+
+.conn-chips:empty::after {
+  content: '없음';
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.conn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  max-width: 100%;
+}
+
+.conn-chip .chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 380px;
+}
+
+.conn-chip .chip-x {
+  cursor: pointer;
+  color: var(--danger);
+  font-weight: 700;
+}
+
+/* 스킬 상세(ℹ) 버튼 */
+.skill-info {
+  float: right;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.skill-info:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}

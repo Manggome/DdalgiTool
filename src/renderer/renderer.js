@@ -66,13 +66,17 @@ const el = {
   tSave: $('#tSave'),
   tOut: $('#tOut'),
   pDocsFolder: $('#pDocsFolder'),
+  pDocsAdd: $('#pDocsAdd'),
+  pDocsList: $('#pDocsList'),
   pSheetsFolder: $('#pSheetsFolder'),
+  pSheetsAdd: $('#pSheetsAdd'),
+  pSheetsList: $('#pSheetsList'),
+  pUnityList: $('#pUnityList'),
   pSlackLoad: $('#pSlackLoad'),
   pSlackList: $('#pSlackList'),
   pTrelloLoad: $('#pTrelloLoad'),
   pTrelloList: $('#pTrelloList'),
   pUnityPick: $('#pUnityPick'),
-  pUnityPath: $('#pUnityPath'),
   idxSync: $('#idxSync'),
   idxState: $('#idxState'),
   updateBar: $('#updateBar'),
@@ -113,6 +117,7 @@ const el = {
   pvFile: $('#pvFile'),
   pvDevice: $('#pvDevice'),
   pvReload: $('#pvReload'),
+  pvReveal: $('#pvReveal'),
   pvDev: $('#pvDev'),
   pvErrBadge: $('#pvErrBadge'),
   pvStage: $('#pvStage'),
@@ -615,6 +620,12 @@ function touchConv(userText) {
 /** 바닥에서 이만큼 안쪽이면 "아래를 보고 있다"고 친다. */
 const BOTTOM_SLACK = 120;
 let unseenBelow = false;
+/**
+ * 따라가기 상태 — 사용자가 바닥에 있으면 true, 위로 올리면 false.
+ * 새 내용이 붙은 "뒤"에 바닥 여부를 재면 긴 응답 한 덩어리에 밀려나 따라가기가 풀리므로,
+ * 스크롤 이벤트 시점의 위치로만 갱신한다.
+ */
+let followBottom = true;
 
 function atBottom() {
   return el.messages.scrollHeight - el.messages.scrollTop - el.messages.clientHeight < BOTTOM_SLACK;
@@ -622,15 +633,16 @@ function atBottom() {
 
 /**
  * 아래로 내린다.
- * force 가 아니면 위를 읽고 있는 사용자를 끌어내리지 않고, 대신 "맨 아래로" 알약을 띄운다.
+ * 따라가는 중(followBottom)이면 항상 내리고, 위를 읽고 있으면 "맨 아래로" 알약만 띄운다.
  */
 function scrollDown(force = false) {
-  if (!force && !atBottom()) {
+  if (!force && !followBottom) {
     unseenBelow = true;
     updateToBottom();
     return;
   }
   el.messages.scrollTop = el.messages.scrollHeight;
+  followBottom = true;
   unseenBelow = false;
   updateToBottom();
 }
@@ -1852,6 +1864,41 @@ function parseFolderId(v) {
 
 // 선택 배열은 절대 재할당하지 않는다 — 체크박스 핸들러가 이 객체를 직접 참조하므로,
 // 재할당하면 이미 그려진 체크가 옛 배열에 기록되어 저장 시 유실된다.
+const connDocsIds = [];
+const connSheetsIds = [];
+const connUnityPaths = [];
+
+/** 문자열 목록을 ✕ 삭제 칩으로 렌더. arr 는 제자리 갱신(재할당 금지). */
+function renderChips(listEl, arr) {
+  listEl.innerHTML = '';
+  arr.forEach((v, i) => {
+    const chip = document.createElement('span');
+    chip.className = 'conn-chip';
+    const label = document.createElement('span');
+    label.className = 'chip-label';
+    label.textContent = v;
+    label.title = v;
+    const x = document.createElement('span');
+    x.className = 'chip-x';
+    x.textContent = '✕';
+    x.title = '제거';
+    x.addEventListener('click', () => {
+      arr.splice(i, 1);
+      renderChips(listEl, arr);
+    });
+    chip.append(label, x);
+    listEl.append(chip);
+  });
+}
+
+function addChip(inputEl, listEl, arr, parse) {
+  const v = (parse ? parse(inputEl.value) : inputEl.value).trim();
+  if (!v || arr.includes(v)) return;
+  arr.push(v);
+  inputEl.value = '';
+  renderChips(listEl, arr);
+}
+
 const connSlackSel = [];  // {id, name}
 const connTrelloSel = []; // {id, name}
 
@@ -1963,11 +2010,18 @@ async function refreshConn(withProject = false) {
   const pj = st.project;
   el.connProjName.textContent = st.workDir ? `— ${st.workDir.split('/').pop()}` : '— 작업 폴더 필요';
   if (pj) {
-    el.pDocsFolder.value = pj.google_drive?.docs_folder_id || '';
-    el.pSheetsFolder.value = pj.google_drive?.sheets_folder_id || '';
+    const gd = pj.google_drive ?? {};
+    seedSel(connDocsIds, [...new Set([gd.docs_folder_id, ...(gd.docs_folder_ids ?? [])].filter(Boolean))]);
+    seedSel(connSheetsIds, [...new Set([gd.sheets_folder_id, ...(gd.sheets_folder_ids ?? [])].filter(Boolean))]);
+    const u = pj.unity ?? {};
+    const paths = (u.projects ?? []).map((x) => x?.path).filter(Boolean);
+    if (u.project_path && !paths.includes(u.project_path)) paths.unshift(u.project_path);
+    seedSel(connUnityPaths, paths);
+    renderChips(el.pDocsList, connDocsIds);
+    renderChips(el.pSheetsList, connSheetsIds);
+    renderChips(el.pUnityList, connUnityPaths);
     seedSel(connSlackSel, (pj.slack?.channels ?? []).map((c) => ({ id: c.id, name: c.name })));
     seedSel(connTrelloSel, (pj.trello?.boards ?? []).map((b) => ({ id: b.id, name: b.name })));
-    el.pUnityPath.textContent = pj.unity?.project_path || '없음';
     renderConnSel(el.pSlackList, connSlackSel);
     renderConnSel(el.pTrelloList, connTrelloSel);
   }
@@ -2134,9 +2188,14 @@ function bindConn() {
     renderConnPicker(el.pTrelloList, r.boards.map((b) => ({ ...b, isPrivate: false })), connTrelloSel);
   });
 
+  el.pDocsAdd.addEventListener('click', () => addChip(el.pDocsFolder, el.pDocsList, connDocsIds, parseFolderId));
+  el.pSheetsAdd.addEventListener('click', () => addChip(el.pSheetsFolder, el.pSheetsList, connSheetsIds, parseFolderId));
   el.pUnityPick.addEventListener('click', async () => {
     const d = await pb.connPickUnityDir();
-    if (d) el.pUnityPath.textContent = d;
+    if (d && !connUnityPaths.includes(d)) {
+      connUnityPaths.push(d);
+      renderChips(el.pUnityList, connUnityPaths);
+    }
   });
 
   el.uSave.addEventListener('click', async () => {
@@ -2168,12 +2227,15 @@ function bindConn() {
   });
 
   el.connSave.addEventListener('click', async () => {
+    // 입력칸에 남아 있는 값도 [추가] 없이 저장되게 흡수한다
+    addChip(el.pDocsFolder, el.pDocsList, connDocsIds, parseFolderId);
+    addChip(el.pSheetsFolder, el.pSheetsList, connSheetsIds, parseFolderId);
     const links = {
-      docsFolderId: parseFolderId(el.pDocsFolder.value),
-      sheetsFolderId: parseFolderId(el.pSheetsFolder.value),
+      docsFolderIds: [...connDocsIds],
+      sheetsFolderIds: [...connSheetsIds],
       slackChannels: connSlackSel,
       trelloBoards: connTrelloSel,
-      unityPath: el.pUnityPath.textContent === '없음' ? '' : el.pUnityPath.textContent,
+      unityPaths: [...connUnityPaths],
     };
     const r = await pb.connProjectSave(links);
     if (r.ok) {
@@ -2355,7 +2417,14 @@ function bind() {
 
   // ---- 맨 아래로 ----
   el.toBottom.addEventListener('click', () => scrollDown(true));
-  el.messages.addEventListener('scroll', updateToBottom, { passive: true });
+  el.messages.addEventListener(
+    'scroll',
+    () => {
+      followBottom = atBottom();
+      updateToBottom();
+    },
+    { passive: true },
+  );
 
   el.sendBtn.addEventListener('click', () => void doSend());
   el.stopBtn.addEventListener('click', () => {
@@ -2533,7 +2602,21 @@ function bind() {
     e.stopPropagation();
     el.skillMenu.classList.toggle('hidden');
   });
-  el.skillMenu.addEventListener('click', (e) => {
+  el.skillMenu.addEventListener('click', async (e) => {
+    // ℹ = 스킬 상세 보기 (실행 아님)
+    const info = e.target.closest('.skill-info');
+    if (info) {
+      e.stopPropagation();
+      el.skillMenu.classList.add('hidden');
+      el.guideModal.classList.remove('hidden');
+      el.guideBody.innerHTML = '<p>불러오는 중…</p>';
+      for (const b of document.querySelectorAll('.tab-btn')) b.classList.remove('active');
+      el.guideFoot.textContent = '이 스킬이 무엇을 하고 어떤 절차로 움직이는지에 대한 내장 지침입니다.';
+      const text = await pb.readSkill(info.dataset.info);
+      el.guideBody.innerHTML = renderMd(text);
+      el.guideBody.scrollTop = 0;
+      return;
+    }
     const item = e.target.closest('.attach-menu-item');
     if (!item) return;
     el.skillMenu.classList.add('hidden');
@@ -2569,6 +2652,9 @@ function bind() {
   el.pvDevice.addEventListener('change', () => {
     localStorage.setItem(DEVICE_KEY, el.pvDevice.value);
     syncBounds();
+  });
+  el.pvReveal.addEventListener('click', () => {
+    if (el.pvFile.value) void pb.previewReveal(el.pvFile.value);
   });
   el.pvReload.addEventListener('click', () => {
     clearPreviewErrors();

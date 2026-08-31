@@ -156,27 +156,27 @@
                 <div id="skillMenu" class="attach-menu hidden">
                   <div class="attach-menu-item" data-skill="design-doc">
                     📄 기획서
-                    <div class="skill-sub">기획서 읽기·질문 답변·수정·예외처리 검수·새 기획서 작성</div>
+                    <button class="skill-info" data-info="design-doc" title="이 스킬이 하는 일 상세 보기">ℹ</button><div class="skill-sub">기획서 읽기·질문 답변·수정·예외처리 검수·새 기획서 작성</div>
                   </div>
                   <div class="attach-menu-item" data-skill="data-table">
                     📊 데이터 테이블
-                    <div class="skill-sub">테이블 읽기·수정·오류 검수·기획서 기반 새 테이블 작성</div>
+                    <button class="skill-info" data-info="data-table" title="이 스킬이 하는 일 상세 보기">ℹ</button><div class="skill-sub">테이블 읽기·수정·오류 검수·기획서 기반 새 테이블 작성</div>
                   </div>
                   <div class="attach-menu-item" data-skill="balance">
                     ⚖️ 밸런스 검증
-                    <div class="skill-sub">테이블·코드 기반 시뮬레이션, 필요 시 HTML 시뮬레이터 제작</div>
+                    <button class="skill-info" data-info="balance" title="이 스킬이 하는 일 상세 보기">ℹ</button><div class="skill-sub">테이블·코드 기반 시뮬레이션, 필요 시 HTML 시뮬레이터 제작</div>
                   </div>
                   <div class="attach-menu-item" data-skill="explore">
                     🔎 탐색·정합성
-                    <div class="skill-sub">질문의 답 찾기, 변경 영향도 리스팅, 테이블↔코드 불일치 검사</div>
+                    <button class="skill-info" data-info="explore" title="이 스킬이 하는 일 상세 보기">ℹ</button><div class="skill-sub">질문의 답 찾기, 변경 영향도 리스팅, 테이블↔코드 불일치 검사</div>
                   </div>
                   <div class="attach-menu-item" data-skill="qa">
                     ✅ QA 테스트 케이스
-                    <div class="skill-sub">카드·기획서·테이블·코드 기반 QA 케이스 작성과 우선순위 분류</div>
+                    <button class="skill-info" data-info="qa" title="이 스킬이 하는 일 상세 보기">ℹ</button><div class="skill-sub">카드·기획서·테이블·코드 기반 QA 케이스 작성과 우선순위 분류</div>
                   </div>
                   <div class="attach-menu-item" data-skill="archive">
                     🗂 아카이빙
-                    <div class="skill-sub">중요 의사결정 기록, 작업 히스토리 정리</div>
+                    <button class="skill-info" data-info="archive" title="이 스킬이 하는 일 상세 보기">ℹ</button><div class="skill-sub">중요 의사결정 기록, 작업 히스토리 정리</div>
                   </div>
                 </div>
               </div>
@@ -224,6 +224,7 @@
             <option value="768x1024">태블릿 768×1024</option>
             <option value="1280x800">데스크톱 1280×800</option>
           </select>
+          <button id="pvReveal" class="icon-btn sm" title="Finder/탐색기에서 보기">📂</button>
           <button id="pvReload" class="icon-btn sm" title="새로고침">↻</button>
           <button id="pvDev" class="icon-btn sm" title="개발자 도구">⚙</button>
           <span id="pvErrBadge" class="pv-err hidden" title="미리보기에서 발생한 오류">0</span>
@@ -347,10 +348,18 @@
 
           <div class="conn-sec">프로젝트 연결 <span id="connProjName" class="conn-note-inline"></span></div>
 
-          <label class="conn-label">구글 드라이브 — 기획서(독스) 폴더</label>
-          <input id="pDocsFolder" class="conn-input wide" placeholder="폴더 ID 또는 드라이브 폴더 URL 붙여넣기" />
-          <label class="conn-label">구글 드라이브 — 데이터 테이블(시트) 폴더</label>
-          <input id="pSheetsFolder" class="conn-input wide" placeholder="폴더 ID 또는 드라이브 폴더 URL 붙여넣기" />
+          <label class="conn-label">구글 드라이브 — 기획서(독스) 폴더 <span class="conn-note-inline">여러 개 등록 가능</span></label>
+          <div id="pDocsList" class="conn-chips"></div>
+          <div class="conn-actions">
+            <input id="pDocsFolder" class="conn-input grow" placeholder="폴더 ID 또는 드라이브 폴더 URL 붙여넣고 [추가]" />
+            <button id="pDocsAdd" class="ghost sm">추가</button>
+          </div>
+          <label class="conn-label">구글 드라이브 — 데이터 테이블(시트) 폴더 <span class="conn-note-inline">여러 개 등록 가능</span></label>
+          <div id="pSheetsList" class="conn-chips"></div>
+          <div class="conn-actions">
+            <input id="pSheetsFolder" class="conn-input grow" placeholder="폴더 ID 또는 드라이브 폴더 URL 붙여넣고 [추가]" />
+            <button id="pSheetsAdd" class="ghost sm">추가</button>
+          </div>
 
           <label class="conn-label">슬랙 채널 — 체크된 채널만 딸기툴이 조회합니다</label>
           <div class="conn-pick">
@@ -364,10 +373,10 @@
             <div id="pTrelloList" class="conn-list"></div>
           </div>
 
-          <label class="conn-label">유니티 프로젝트 경로 (읽기 전용으로 사용)</label>
+          <label class="conn-label">유니티 프로젝트 경로 (읽기 전용 · 여러 개 등록 가능)</label>
+          <div id="pUnityList" class="conn-chips"></div>
           <div class="conn-pick">
-            <button id="pUnityPick" class="ghost sm">폴더 선택</button>
-            <span id="pUnityPath" class="conn-path">없음</span>
+            <button id="pUnityPick" class="ghost sm">프로젝트 폴더 추가</button>
           </div>
 
           <div class="modal-actions">

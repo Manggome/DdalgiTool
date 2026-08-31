@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadProject } from './project.mjs';
+import { loadProject, docsFolderIds, sheetsFolderIds, unityProjects } from './project.mjs';
 import { flog } from './config.mjs';
 import { googleConnected } from './connectors/google-auth.mjs';
 import { slackStatus } from './connectors/slack.mjs';
@@ -52,39 +52,41 @@ export async function syncIndex(workDir, { force = false, onStatus } = {}) {
   md.push('');
   md.push('이 파일은 인덱서가 자동 생성한다. 조회 전에 여기서 대상(파일 id·탭·채널·카드)을 먼저 좁힌다.');
 
-  // ---- 구글 드라이브 (기획서 + 시트) ----
-  const gd = pj.google_drive ?? {};
-  if (googleConnected() && (gd.docs_folder_id || gd.sheets_folder_id)) {
+  // ---- 구글 드라이브 (기획서 + 시트 — 폴더 복수 지원) ----
+  const docsIds = docsFolderIds(pj);
+  const sheetsIds = sheetsFolderIds(pj);
+  if (googleConnected() && (docsIds.length || sheetsIds.length)) {
     try {
-      if (gd.docs_folder_id) {
-        say('드라이브 기획서 폴더 조회');
-        const files = await g.driveList(gd.docs_folder_id, MAX_FILES);
-        counts.docs = files.length;
-        md.push('', `## 기획서 폴더 (구글 드라이브, ${files.length}개)`);
+      for (let i = 0; i < docsIds.length; i++) {
+        say(`드라이브 기획서 폴더 조회 (${i + 1}/${docsIds.length})`);
+        const files = await g.driveList(docsIds[i], MAX_FILES);
+        counts.docs = (counts.docs || 0) + files.length;
+        md.push('', `## 기획서 폴더${docsIds.length > 1 ? ` ${i + 1}` : ''} (구글 드라이브, ${files.length}개)`);
         for (const f of files) {
           const kind = f.mimeType.includes('presentation') ? 'slides' : f.mimeType.includes('document') ? 'doc' : f.mimeType.split('.').pop();
           md.push(`- ${f.name} [${kind}] id=${f.id} (수정 ${f.modifiedTime?.slice(0, 10)})`);
         }
       }
-      if (gd.sheets_folder_id) {
-        say('드라이브 시트 폴더 조회');
-        const files = await g.driveList(gd.sheets_folder_id, MAX_FILES);
-        counts.sheets = files.length;
-        md.push('', `## 데이터 테이블 폴더 (구글 드라이브, ${files.length}개)`);
+      let sheetMetaBudget = MAX_SHEETS_META;
+      for (let i = 0; i < sheetsIds.length; i++) {
+        say(`드라이브 시트 폴더 조회 (${i + 1}/${sheetsIds.length})`);
+        const files = await g.driveList(sheetsIds[i], MAX_FILES);
+        counts.sheets = (counts.sheets || 0) + files.length;
+        md.push('', `## 데이터 테이블 폴더${sheetsIds.length > 1 ? ` ${i + 1}` : ''} (구글 드라이브, ${files.length}개)`);
         const spreads = files.filter((f) => f.mimeType.includes('spreadsheet'));
         for (const f of files) {
           const kind = f.mimeType.includes('spreadsheet') ? 'sheet' : f.mimeType.split('.').pop();
           md.push(`- ${f.name} [${kind}] id=${f.id} (수정 ${f.modifiedTime?.slice(0, 10)})`);
         }
-        // 주요 스프레드시트의 탭 목록 (조회 범위를 좁히는 데 가장 유용한 정보)
-        // '사본'·'[삭제용]' 파일은 파일명만 남긴다 — 탭 목록까지 담으면 카탈로그가 3배로 불어난다.
+        // 주요 스프레드시트의 탭 목록 — '사본'·'[삭제용]' 파일은 파일명만 남긴다.
         const primary = spreads.filter((f) => !/사본|\[삭제용\]|백업|test|테스트/i.test(f.name));
-        for (const f of primary.slice(0, MAX_SHEETS_META)) {
+        for (const f of primary.slice(0, sheetMetaBudget)) {
           say(`시트 탭 목록: ${f.name}`);
           try {
             const meta = await g.sheetMeta(f.id);
             md.push('', `### 시트 "${f.name}" 탭 (${meta.tabs.length}개) — id=${f.id}`);
             md.push(meta.tabs.map((t) => `${t.title}(${t.rows}×${t.cols})`).join(' · '));
+            sheetMetaBudget -= 1;
           } catch (e) {
             errors.push(`시트 ${f.name}: ${e.message}`);
           }
@@ -125,11 +127,11 @@ export async function syncIndex(workDir, { force = false, onStatus } = {}) {
     md.push('', '## 트렐로 — 미연결 또는 등록 보드 없음');
   }
 
-  // ---- 유니티 (로컬 — API 비용 없음) ----
-  const up = pj.unity?.project_path;
-  if (up && fs.existsSync(up)) {
-    const scriptsRoot = path.join(up, pj.unity?.scripts_root ?? 'Assets/Scripts');
-    md.push('', `## 유니티 프로젝트 — ${up}`);
+  // ---- 유니티 (로컬 — API 비용 없음, 복수 프로젝트 지원) ----
+  for (const proj of unityProjects(pj)) {
+    if (!fs.existsSync(proj.path)) continue;
+    const scriptsRoot = path.join(proj.path, proj.scripts_root);
+    md.push('', `## 유니티 프로젝트 — ${proj.path}`);
     try {
       let csCount = 0;
       const dirs = [];
@@ -143,10 +145,10 @@ export async function syncIndex(workDir, { force = false, onStatus } = {}) {
         }
       };
       if (fs.existsSync(scriptsRoot)) walk(scriptsRoot, 0);
-      counts.csFiles = csCount;
+      counts.csFiles = (counts.csFiles || 0) + csCount;
       md.push(`- 스크립트 루트: ${scriptsRoot} (.cs ${csCount}개)`);
       if (dirs.length) md.push('- 하위 폴더: ' + dirs.slice(0, 40).join(', '));
-      md.push('- 코드 검색: Grep, 변경 이력: `git -C "' + up + '" log --oneline -- <파일>` (읽기 전용)');
+      md.push('- 코드 검색: Grep, 변경 이력: `git -C "' + proj.path + '" log --oneline -- <파일>` (읽기 전용)');
     } catch (e) {
       errors.push('유니티: ' + e.message);
     }

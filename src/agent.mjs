@@ -1,6 +1,6 @@
 import { query, createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import { loadProject } from './project.mjs';
+import { loadProject, docsFolderIds, sheetsFolderIds, unityProjects } from './project.mjs';
 import * as g from './connectors/google.mjs';
 import * as sl from './connectors/slack.mjs';
 import * as tr from './connectors/trello.mjs';
@@ -34,6 +34,23 @@ function assertChannelAllowed(channelId) {
 }
 
 const text = (t) => ({ content: [{ type: 'text', text: typeof t === 'string' ? t : JSON.stringify(t, null, 1) }] });
+
+/** 수정·생성한 문서는 사용자가 바로 보게 기본 브라우저로 연다 (같은 문서는 5분에 1번만). */
+const recentlyOpened = new Map(); // url -> ts
+function openAfterWrite(url) {
+  if (!url || !toolCtx.openExternal) return;
+  const last = recentlyOpened.get(url) || 0;
+  if (Date.now() - last < 300000) return;
+  recentlyOpened.set(url, Date.now());
+  try {
+    toolCtx.openExternal(url);
+  } catch {
+    /* noop */
+  }
+}
+const docUrl = (id) => `https://docs.google.com/document/d/${id}/edit`;
+const sheetUrl = (id) => `https://docs.google.com/spreadsheets/d/${id}/edit`;
+const slidesUrl = (id) => `https://docs.google.com/presentation/d/${id}/edit`;
 const errText = (e) => ({ content: [{ type: 'text', text: '오류: ' + e.message }], isError: true });
 
 /** 쓰기 도구 공통 래퍼 — 앱 승인(권한 모드와 무관하게 항상) 후에만 실행. */
@@ -57,10 +74,10 @@ const ddalgiTools = createSdkMcpServer({
       { query: z.string().describe('검색어 (파일 이름·본문)'), scope: z.enum(['docs', 'sheets', 'all']).optional().describe('검색 범위 폴더 (기본 all)') },
       async ({ query: q, scope }) => {
         try {
-          const gd = project().google_drive ?? {};
+          const pj = project();
           const folders = [];
-          if ((scope ?? 'all') !== 'sheets' && gd.docs_folder_id) folders.push(gd.docs_folder_id);
-          if ((scope ?? 'all') !== 'docs' && gd.sheets_folder_id) folders.push(gd.sheets_folder_id);
+          if ((scope ?? 'all') !== 'sheets') folders.push(...docsFolderIds(pj));
+          if ((scope ?? 'all') !== 'docs') folders.push(...sheetsFolderIds(pj));
           const files = await g.driveSearch(q, folders);
           if (!files.length) return text('검색 결과 없음' + (folders.length ? ' (project.yaml 지정 폴더 내)' : ''));
           return text(files.map((f) => `- ${f.name} [${f.mimeType.split('.').pop()}] id=${f.id} (수정 ${f.modifiedTime?.slice(0, 10)})`).join('\n'));
@@ -132,6 +149,7 @@ const ddalgiTools = createSdkMcpServer({
             `시트 ${spreadsheet_id} 의 ${range} 에 ${values.length}행 기록:\n${values_tsv.slice(0, 400)}`,
             async () => {
               const d = await g.sheetUpdate(spreadsheet_id, range, values);
+              openAfterWrite(sheetUrl(spreadsheet_id));
               return `기록 완료: ${d.updatedRange} (${d.updatedCells}셀)`;
             },
           );
@@ -150,10 +168,12 @@ const ddalgiTools = createSdkMcpServer({
       },
       async ({ title, type, folder }) => {
         try {
-          const gd = project().google_drive ?? {};
-          const folderId = (folder ?? (type === 'sheet' ? 'sheets' : 'docs')) === 'sheets' ? gd.sheets_folder_id : gd.docs_folder_id;
+          const pj = project();
+          const folderId =
+            (folder ?? (type === 'sheet' ? 'sheets' : 'docs')) === 'sheets' ? sheetsFolderIds(pj)[0] : docsFolderIds(pj)[0];
           return await approvedWrite('구글 드라이브에 새 파일', `${type} 파일 "${title}" 생성${folderId ? ' (프로젝트 폴더 안)' : ''}`, async () => {
             const d = await g.driveCreate(title, type, folderId);
+            openAfterWrite(d.webViewLink);
             return `생성 완료: ${d.name} (id=${d.id})\n${d.webViewLink || ''}`;
           });
         } catch (e) {
@@ -169,6 +189,7 @@ const ddalgiTools = createSdkMcpServer({
         try {
           return await approvedWrite('구글 독스에 추가', `문서 ${doc_id} 끝에 추가:\n${body.slice(0, 400)}`, async () => {
             await g.docAppend(doc_id, body);
+            openAfterWrite(docUrl(doc_id));
             return '추가 완료';
           });
         } catch (e) {
@@ -192,6 +213,7 @@ const ddalgiTools = createSdkMcpServer({
             `문서 ${doc_id}\n"${find.slice(0, 100)}" 문단 뒤에 ${body.split('\n').length}개 문단 삽입 (서식 상속):\n${body.slice(0, 300)}`,
             async () => {
               const r = await g.docInsertAfter(doc_id, find, body, nth ?? 1);
+              if (r.ok) openAfterWrite(docUrl(doc_id));
               return r.ok ? `삽입 완료 (${r.lines}개 문단, 기준 문단 서식 상속)` : `실패: ${r.reason}`;
             },
           );
@@ -216,6 +238,7 @@ const ddalgiTools = createSdkMcpServer({
             `문서 ${doc_id}\n"${find.slice(0, 120)}" 문단 삭제${all ? ' (일치 전부)' : ''}`,
             async () => {
               const n = await g.docDeleteParagraph(doc_id, find, !!all, nth ?? 1);
+              if (n) openAfterWrite(docUrl(doc_id));
               return n ? `삭제 완료 (${n}개 문단)` : '일치하는 문단이 없습니다.';
             },
           );
@@ -236,6 +259,7 @@ const ddalgiTools = createSdkMcpServer({
         try {
           return await approvedWrite('구글 독스 수정', `문서 ${doc_id} 치환:\n"${find.slice(0, 180)}"\n→ "${replace.slice(0, 180)}"`, async () => {
             const n = await g.docReplace(doc_id, find, replace);
+            if (n) openAfterWrite(docUrl(doc_id));
             return n ? `치환 완료 (${n}곳)` : '일치하는 문구가 없어 아무것도 바뀌지 않았습니다 — find 문자열을 원문과 정확히 맞춰 다시 시도하세요.';
           });
         } catch (e) {
@@ -259,6 +283,7 @@ const ddalgiTools = createSdkMcpServer({
             `문서 ${doc_id}\n"${find.slice(0, 120)}" 문단 → ${style}${all ? ' (일치 전부)' : ''}`,
             async () => {
               const n = await g.docSetParagraphStyle(doc_id, find, style, !!all);
+              if (n) openAfterWrite(docUrl(doc_id));
               return n ? `적용 완료 (${n}개 문단 → ${style})` : '일치하는 문단이 없습니다 — doc_read 로 원문을 확인해 find 를 맞춰 주세요.';
             },
           );
@@ -283,6 +308,7 @@ const ddalgiTools = createSdkMcpServer({
             `문서 ${doc_id}\n"${find.slice(0, 120)}" 문단 → 들여쓰기 ${level}단계${all ? ' (일치 전부)' : ''}`,
             async () => {
               const n = await g.docSetIndent(doc_id, find, level, !!all);
+              if (n) openAfterWrite(docUrl(doc_id));
               return n ? `적용 완료 (${n}개 문단)` : '일치하는 문단이 없습니다.';
             },
           );
@@ -309,6 +335,7 @@ const ddalgiTools = createSdkMcpServer({
             `문서 ${doc_id}\n"${find.slice(0, 80)}"${through ? ` ~ "${through.slice(0, 80)}"` : ''} → ${what}`,
             async () => {
               const r = await g.docSetBullets(doc_id, find, { through, style: style ?? '불릿', remove: !!remove });
+              if (r.ok) openAfterWrite(docUrl(doc_id));
               return r.ok ? `${what} 완료` : `실패: ${r.reason} — doc_read 로 원문을 확인하세요.`;
             },
           );
@@ -325,6 +352,7 @@ const ddalgiTools = createSdkMcpServer({
         try {
           return await approvedWrite('구글 슬라이드 수정', `프레젠테이션 ${presentation_id} 치환:\n"${find.slice(0, 180)}"\n→ "${replace.slice(0, 180)}"`, async () => {
             const n = await g.slidesReplace(presentation_id, find, replace);
+            if (n) openAfterWrite(slidesUrl(presentation_id));
             return n ? `치환 완료 (${n}곳)` : '일치하는 문구가 없어 아무것도 바뀌지 않았습니다.';
           });
         } catch (e) {
@@ -340,6 +368,7 @@ const ddalgiTools = createSdkMcpServer({
         try {
           return await approvedWrite('구글 슬라이드에 장 추가', `프레젠테이션 ${presentation_id} 에 슬라이드 추가: "${title}"`, async () => {
             await g.slidesAddSlide(presentation_id, title, body || '');
+            openAfterWrite(slidesUrl(presentation_id));
             return '슬라이드 추가 완료';
           });
         } catch (e) {
@@ -358,8 +387,8 @@ const ddalgiTools = createSdkMcpServer({
       async ({ file_id, new_name, folder }) => {
         try {
           const meta = await g.driveFileMeta(file_id);
-          const gd = project().google_drive ?? {};
-          const folderId = folder ? (folder === 'sheets' ? gd.sheets_folder_id : gd.docs_folder_id) : undefined;
+          const pj = project();
+          const folderId = folder ? (folder === 'sheets' ? sheetsFolderIds(pj)[0] : docsFolderIds(pj)[0]) : undefined;
           return await approvedWrite('드라이브 사본 만들기', `"${meta.name}" 의 사본 생성${new_name ? ` → "${new_name}"` : ''}`, async () => {
             const d = await g.driveCopy(file_id, new_name, folderId);
             return `사본 생성 완료: ${d.name} (id=${d.id})\n${d.webViewLink || ''}`;
@@ -394,8 +423,8 @@ const ddalgiTools = createSdkMcpServer({
       },
       async ({ file_id, target }) => {
         try {
-          const gd = project().google_drive ?? {};
-          const folderId = target === 'docs' ? gd.docs_folder_id : target === 'sheets' ? gd.sheets_folder_id : target;
+          const pj = project();
+          const folderId = target === 'docs' ? docsFolderIds(pj)[0] : target === 'sheets' ? sheetsFolderIds(pj)[0] : target;
           if (!folderId) return errText(new Error('대상 폴더를 찾을 수 없습니다.'));
           const meta = await g.driveFileMeta(file_id);
           return await approvedWrite('드라이브 파일 이동', `"${meta.name}" 을(를) ${target} 폴더로 이동`, async () => {
@@ -482,6 +511,30 @@ const ddalgiTools = createSdkMcpServer({
           return await approvedWrite('슬랙 메시지 발송', `채널 ${channel_id} 에 발송:\n${body.slice(0, 400)}`, async () => {
             const d = await sl.slackPost(channel_id, body);
             return `발송 완료 (ts=${d.ts})`;
+          });
+        } catch (e) {
+          return errText(e);
+        }
+      },
+    ),
+    tool(
+      'slack_upload_file',
+      '[쓰기·승인 필요] 작업 폴더의 파일(QA 체크리스트 HTML 등)을 등록된 슬랙 채널에 업로드합니다. 반드시 사용자가 결과물을 검토하고 올리라고 한 뒤에만 호출하세요.',
+      {
+        channel_id: z.string().describe('채널 ID (slack_channels 참고)'),
+        file_path: z.string().describe('작업 폴더 기준 상대 경로 또는 절대 경로'),
+        title: z.string().optional().describe('슬랙에 표시될 파일 제목'),
+      },
+      async ({ channel_id, file_path, title }) => {
+        try {
+          assertChannelAllowed(channel_id);
+          const path = await import('node:path');
+          const fs = await import('node:fs');
+          const abs = path.isAbsolute(file_path) ? file_path : path.join(toolCtx.workDir ?? '', file_path);
+          if (!fs.existsSync(abs)) return errText(new Error('파일이 없습니다: ' + abs));
+          return await approvedWrite('슬랙 파일 업로드', `채널 ${channel_id} 에 파일 업로드: ${abs}`, async () => {
+            const r = await sl.slackUploadFile(channel_id, abs, title);
+            return `업로드 완료: ${r.name}`;
           });
         } catch (e) {
           return errText(e);
@@ -678,9 +731,10 @@ function buildAppendPrompt(knowledgeDir, skillsDir) {
     '- VLOOKUP 등 룩업으로 채워지는 name/desc 류 컬럼이 비어 있거나 #N/A·null 이면, 원본 localize(현지화) 테이블에 키가 없는 것입니다 — localize 테이블에 신규 키 행 추가를 제안하고 승인받아 진행합니다. 룩업 셀을 값으로 덮어쓰지 않습니다.',
     '',
     '## 깃 (유니티 프로젝트)',
-    '- project.yaml 의 unity.project_path 저장소는 Bash 로 조회합니다: `git -C <경로> log --oneline -20`, `git -C <경로> log -p -- <파일>`, blame 등.',
+    '- 유니티 프로젝트는 여러 개일 수 있습니다 — project.yaml 의 unity.projects 목록(없으면 unity.project_path)을 확인하고,',
+    '  각 저장소는 Bash 로 조회합니다: `git -C <경로> log --oneline -20`, `git -C <경로> log -p -- <파일>`, blame 등.',
     '- 깃은 **읽기 전용**입니다 — commit/push/checkout 등 상태를 바꾸는 명령은 실행하지 않습니다.',
-    '- 슬랙: slack_channels / slack_history / slack_replies / slack_post[쓰기] — project.yaml 에 등록된 채널만',
+    '- 슬랙: slack_channels / slack_history / slack_replies / slack_post[쓰기] / slack_upload_file[쓰기·파일] — project.yaml 에 등록된 채널만',
     '- 트렐로: trello_boards / trello_board_cards / trello_card / trello_lists / trello_card_create[쓰기] / trello_card_comment[쓰기] / trello_card_attach[쓰기] — 카드의 이미지 첨부는 trello_card 로 직접 볼 수 있음',
     '쓰기 도구는 호출 시 앱이 사용자 승인을 자동으로 받습니다 — 그래도 호출 전에 무엇을 바꿀지 대화로 먼저 보여 주세요.',
     '도구가 "연결되어 있지 않습니다" 오류를 주면 사용자에게 [🔗 연동 설정]을 안내하고 그 소스 없이 진행할지 물어보세요.',
@@ -745,6 +799,7 @@ const DDALGI_WRITE_TOOLS = [
   'mcp__ddalgi__drive_move',
   'mcp__ddalgi__trello_card_update',
   'mcp__ddalgi__slack_post',
+  'mcp__ddalgi__slack_upload_file',
   'mcp__ddalgi__trello_card_create',
   'mcp__ddalgi__trello_card_comment',
   'mcp__ddalgi__trello_card_attach',
