@@ -2,8 +2,10 @@
 // 사용: node build/mask-icon.mjs  (build/icon.png 를 제자리 수정)
 import fs from 'node:fs';
 import zlib from 'node:zlib';
+import { fileURLToPath } from 'node:url';
 
-const SRC = new URL('./icon.png', import.meta.url).pathname;
+// 한글 경로가 URL 인코딩되지 않게 fileURLToPath 를 쓴다.
+const SRC = fileURLToPath(new URL('./icon.png', import.meta.url));
 const f = fs.readFileSync(SRC);
 let pos = 8;
 const idat = [];

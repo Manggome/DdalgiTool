@@ -1,8 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#F76A7F"/>
-      <stop offset="1" stop-color="#C2274A"/>
+      <stop offset="0" stop-color="#323952"/>
+      <stop offset="1" stop-color="#151827"/>
+    </linearGradient>
+    <linearGradient id="berry" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F65C74"/>
+      <stop offset="1" stop-color="#D22E4E"/>
     </linearGradient>
     <linearGradient id="leaf" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#63C97D"/>
@@ -10,17 +14,17 @@
     </linearGradient>
   </defs>
 
-  <!-- PB 아이콘과 같은 지오메트리: 88px 투명 여백 + rx190 라운드 스쿼클 -->
+  <!-- PB 지오메트리: 88px 여백 + rx190 스쿼클, 네이비 배경 -->
   <rect x="88" y="88" width="848" height="848" rx="190" ry="190" fill="url(#bg)"/>
 
-  <!-- 크림 딸기 (스쿼클 안 중앙) -->
+  <!-- 레드 딸기 -->
   <g transform="translate(512 545) scale(0.8) translate(-512 -560)">
-    <path fill="#FFF3E0" d="M512 900
+    <path fill="url(#berry)" d="M512 900
       C 356 900 228 766 228 584
       C 228 464 300 390 512 390
       C 724 390 796 464 796 584
       C 796 766 668 900 512 900 Z"/>
-    <g fill="#D9395A">
+    <g fill="#FFE9A8">
       <ellipse cx="398" cy="530" rx="17" ry="25"/>
       <ellipse cx="512" cy="510" rx="17" ry="25"/>
       <ellipse cx="626" cy="530" rx="17" ry="25"/>
@@ -40,6 +44,6 @@
       <path d="M512 420 C 556 394 586 350 586 294 C 534 318 514 354 512 420 Z"/>
     </g>
     <rect x="495" y="216" width="34" height="140" rx="17" fill="#3E9457"/>
-    <ellipse cx="372" cy="486" rx="54" ry="30" fill="#FFFFFF" opacity="0.5" transform="rotate(-24 372 486)"/>
+    <ellipse cx="372" cy="486" rx="54" ry="30" fill="#FFFFFF" opacity="0.30" transform="rotate(-24 372 486)"/>
   </g>
 </svg>
