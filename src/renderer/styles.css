@@ -2199,3 +2199,27 @@ mark.find-hit.current {
   border-radius: 4px;
   padding: 0 5px;
 }
+
+/* 승인 카드 — 비차단 도킹 (우하단) */
+.perm-dock {
+  position: fixed;
+  right: 16px;
+  bottom: 88px;
+  z-index: 60;
+}
+
+.perm-dock.hidden {
+  display: none;
+}
+
+.perm-dock .modal.perm {
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  border-color: var(--warn);
+}
+
+.perm-count {
+  font-size: 12px;
+  color: var(--warn);
+  font-weight: 600;
+  margin-left: 6px;
+}

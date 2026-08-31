@@ -247,16 +247,17 @@
     </div>
 
 
-    <!-- 권한 확인 -->
-    <div id="permModal" class="modal-backdrop hidden">
+    <!-- 권한 확인 — 화면을 막지 않는 우하단 카드 (대기 중에도 채팅·스크롤 가능) -->
+    <div id="permModal" class="perm-dock hidden">
       <div class="modal perm">
-        <div class="perm-head"><span id="permTool" class="perm-tool"></span> — 허용할까요?</div>
+        <div class="perm-head"><span id="permTool" class="perm-tool"></span> — 허용할까요? <span id="permCount" class="perm-count hidden"></span></div>
         <div id="permTitle" class="perm-title"></div>
         <pre id="permSummary" class="perm-summary"></pre>
         <div id="permDesc" class="perm-desc"></div>
         <div class="modal-actions">
           <button id="permDeny" class="ghost">거부</button>
           <button id="permAlways" class="ghost">이 도구는 항상 허용</button>
+          <button id="permAllowAll" class="ghost hidden">모두 허용</button>
           <button id="permAllow" class="primary">허용</button>
         </div>
       </div>
@@ -365,6 +366,9 @@
           <div class="modal-actions">
             <button id="connSave" class="primary">프로젝트 설정 저장 → .ddalgi/project.yaml</button>
           </div>
+
+          <div class="conn-sec">쓰기 자동 허용 <span class="conn-note-inline">— 승인창에서 [이 도구는 항상 허용]을 누른 종류 (자동 통과, 토스트로만 알림)</span></div>
+          <div id="waList" class="conn-actions"><span class="conn-state">없음</span></div>
 
           <div class="conn-sec">인덱스 카탈로그 <span class="conn-note-inline">— 문서·시트 탭·채널·카드 목록을 로컬에 두어 조회 범위를 좁힙니다 (6시간마다 자동)</span></div>
           <div class="conn-actions">
