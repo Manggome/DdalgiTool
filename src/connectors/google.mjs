@@ -272,3 +272,46 @@ export async function driveMove(fileId, targetFolderId) {
 }
 
 // 삭제·휴지통 기능은 정책상 제공하지 않는다 — 삭제가 필요하면 이름에 [삭제용] 을 붙여 표시하고 사람이 지운다.
+
+/** 이름 있는 문단 스타일 매핑 (도구 입력은 한국어). */
+export const DOC_NAMED_STYLES = {
+  제목: 'TITLE',
+  부제: 'SUBTITLE',
+  제목1: 'HEADING_1',
+  제목2: 'HEADING_2',
+  제목3: 'HEADING_3',
+  제목4: 'HEADING_4',
+  제목5: 'HEADING_5',
+  제목6: 'HEADING_6',
+  본문: 'NORMAL_TEXT',
+};
+
+/**
+ * find 문구가 포함된 문단에 이름 있는 스타일(제목1 등)을 적용한다.
+ * all=false 면 첫 번째 일치 문단만. 적용한 문단 수를 돌려준다.
+ * 호출 전 반드시 앱 승인 절차를 거칠 것.
+ */
+export async function docSetParagraphStyle(docId, find, styleKo, all = false) {
+  const named = DOC_NAMED_STYLES[styleKo];
+  if (!named) throw new Error(`지원하지 않는 스타일: ${styleKo} (가능: ${Object.keys(DOC_NAMED_STYLES).join(', ')})`);
+  const d = await gget(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}`);
+  const matches = [];
+  for (const el of d.body?.content ?? []) {
+    if (!el.paragraph) continue;
+    const text = (el.paragraph.elements ?? []).map((e) => e.textRun?.content ?? '').join('');
+    if (text.includes(find)) matches.push({ start: el.startIndex, end: el.endIndex });
+  }
+  if (!matches.length) return 0;
+  const targets = all ? matches : [matches[0]];
+  await docBatch(
+    docId,
+    targets.map((p) => ({
+      updateParagraphStyle: {
+        range: { startIndex: p.start, endIndex: p.end },
+        paragraphStyle: { namedStyleType: named },
+        fields: 'namedStyleType',
+      },
+    })),
+  );
+  return targets.length;
+}

@@ -196,6 +196,30 @@ const ddalgiTools = createSdkMcpServer({
       },
     ),
     tool(
+      'doc_set_style',
+      '[쓰기·승인 필요] 구글 독스에서 find 문구가 포함된 문단에 이름 있는 스타일을 적용합니다 (제목 계층 정리용). find 는 대상 문단을 특정할 만큼 유일한 문구로 주세요.',
+      {
+        doc_id: z.string(),
+        find: z.string().describe('스타일을 바꿀 문단에 들어 있는 문구'),
+        style: z.enum(['제목', '부제', '제목1', '제목2', '제목3', '제목4', '제목5', '제목6', '본문']),
+        all: z.boolean().optional().describe('true 면 일치하는 모든 문단에 적용 (기본: 첫 번째만)'),
+      },
+      async ({ doc_id, find, style, all }) => {
+        try {
+          return await approvedWrite(
+            '구글 독스 문단 스타일',
+            `문서 ${doc_id}\n"${find.slice(0, 120)}" 문단 → ${style}${all ? ' (일치 전부)' : ''}`,
+            async () => {
+              const n = await g.docSetParagraphStyle(doc_id, find, style, !!all);
+              return n ? `적용 완료 (${n}개 문단 → ${style})` : '일치하는 문단이 없습니다 — doc_read 로 원문을 확인해 find 를 맞춰 주세요.';
+            },
+          );
+        } catch (e) {
+          return errText(e);
+        }
+      },
+    ),
+    tool(
       'slides_replace',
       '[쓰기·승인 필요] 구글 슬라이드 전체에서 find 문자열을 replace 로 바꿉니다. slides_read 로 원문을 먼저 확인하고, 유일한 문구로 치환하세요.',
       { presentation_id: z.string(), find: z.string(), replace: z.string() },
@@ -504,7 +528,7 @@ function buildAppendPrompt(knowledgeDir, skillsDir) {
     '## 연동 도구 (mcp__ddalgi__*)',
     '구글 드라이브/독스/시트·슬랙·트렐로는 아래 내장 도구로 접근합니다 (WebFetch 로 열지 마세요):',
     '- 구글 읽기: drive_search → doc_read(독스) / slides_read(슬라이드) / sheet_read(범위 생략=탭 목록)',
-    '- 구글 쓰기[승인]: sheet_update / doc_replace·doc_append(독스 수정) / slides_replace·slides_add_slide(슬라이드 수정) / drive_create(새 독스·슬라이드·시트)',
+    '- 구글 쓰기[승인]: sheet_update / doc_replace·doc_append·doc_set_style(독스 수정·문단 스타일) / slides_replace·slides_add_slide(슬라이드 수정) / drive_create(새 독스·슬라이드·시트)',
     '- 구글 파일 관리[승인]: drive_copy(사본) / drive_rename(이름 변경) / drive_move(폴더 이동)',
     '- **삭제 금지**: 어떤 파일·카드도 삭제·보관하지 않습니다. 삭제가 필요해 보이면 drive_rename/trello_card_update 로 이름 앞에 `[삭제용] ` 을 붙여 표시만 하고, 실제 삭제는 사람이 합니다.',
     '- open_page: 사용자가 화면으로 직접 확인해야 할 때(시트·문서·트렐로 보드) 해당 URL 을 오른쪽 패널에 띄웁니다.',
@@ -570,6 +594,7 @@ const DDALGI_WRITE_TOOLS = [
   'mcp__ddalgi__drive_create',
   'mcp__ddalgi__doc_append',
   'mcp__ddalgi__doc_replace',
+  'mcp__ddalgi__doc_set_style',
   'mcp__ddalgi__slides_replace',
   'mcp__ddalgi__slides_add_slide',
   'mcp__ddalgi__drive_copy',
