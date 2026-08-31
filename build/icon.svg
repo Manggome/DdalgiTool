@@ -1,9 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#FFF3F0"/>
-      <stop offset="1" stop-color="#FFDDD6"/>
-    </linearGradient>
     <linearGradient id="berry" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#F2536B"/>
       <stop offset="1" stop-color="#D22E4E"/>
@@ -14,41 +10,38 @@
     </linearGradient>
   </defs>
 
-  <!-- macOS 스타일 라운드 사각 배경 -->
-  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
-
-  <!-- 딸기 본체 -->
-  <path fill="url(#berry)" d="M512 880
-    C 360 880 236 748 236 570
-    C 236 452 306 380 512 380
-    C 718 380 788 452 788 570
-    C 788 748 664 880 512 880 Z"/>
-
-  <!-- 씨앗 -->
-  <g fill="#FFE9A8">
-    <ellipse cx="400" cy="520" rx="16" ry="24"/>
-    <ellipse cx="512" cy="500" rx="16" ry="24"/>
-    <ellipse cx="624" cy="520" rx="16" ry="24"/>
-    <ellipse cx="348" cy="628" rx="16" ry="24"/>
-    <ellipse cx="456" cy="616" rx="16" ry="24"/>
-    <ellipse cx="568" cy="616" rx="16" ry="24"/>
-    <ellipse cx="676" cy="628" rx="16" ry="24"/>
-    <ellipse cx="408" cy="726" rx="16" ry="24"/>
-    <ellipse cx="512" cy="740" rx="16" ry="24"/>
-    <ellipse cx="616" cy="726" rx="16" ry="24"/>
-    <ellipse cx="512" cy="828" rx="14" ry="20"/>
+  <!-- 배경 없음(투명) — 딸기를 캔버스 가득 -->
+  <g transform="translate(512 538) scale(1.32) translate(-512 -538)">
+    <!-- 본체 -->
+    <path fill="url(#berry)" d="M512 880
+      C 360 880 236 748 236 570
+      C 236 452 306 380 512 380
+      C 718 380 788 452 788 570
+      C 788 748 664 880 512 880 Z"/>
+    <!-- 씨앗 -->
+    <g fill="#FFE9A8">
+      <ellipse cx="400" cy="520" rx="16" ry="24"/>
+      <ellipse cx="512" cy="500" rx="16" ry="24"/>
+      <ellipse cx="624" cy="520" rx="16" ry="24"/>
+      <ellipse cx="348" cy="628" rx="16" ry="24"/>
+      <ellipse cx="456" cy="616" rx="16" ry="24"/>
+      <ellipse cx="568" cy="616" rx="16" ry="24"/>
+      <ellipse cx="676" cy="628" rx="16" ry="24"/>
+      <ellipse cx="408" cy="726" rx="16" ry="24"/>
+      <ellipse cx="512" cy="740" rx="16" ry="24"/>
+      <ellipse cx="616" cy="726" rx="16" ry="24"/>
+      <ellipse cx="512" cy="828" rx="14" ry="20"/>
+    </g>
+    <!-- 잎 -->
+    <g fill="url(#leaf)">
+      <path d="M512 402 C 448 402 386 380 350 336 C 420 328 462 342 512 380 Z"/>
+      <path d="M512 402 C 576 402 638 380 674 336 C 604 328 562 342 512 380 Z"/>
+      <path d="M512 410 C 470 386 442 344 442 292 C 490 314 510 348 512 410 Z"/>
+      <path d="M512 410 C 554 386 582 344 582 292 C 534 314 514 348 512 410 Z"/>
+    </g>
+    <!-- 줄기 -->
+    <rect x="496" y="212" width="32" height="140" rx="16" fill="#3E8E52"/>
+    <!-- 하이라이트 -->
+    <ellipse cx="380" cy="470" rx="52" ry="30" fill="#FFFFFF" opacity="0.28" transform="rotate(-24 380 470)"/>
   </g>
-
-  <!-- 잎 (꼭지) -->
-  <g fill="url(#leaf)">
-    <path d="M512 402 C 448 402 386 380 350 336 C 420 328 462 342 512 380 Z"/>
-    <path d="M512 402 C 576 402 638 380 674 336 C 604 328 562 342 512 380 Z"/>
-    <path d="M512 410 C 470 386 442 344 442 292 C 490 314 510 348 512 410 Z"/>
-    <path d="M512 410 C 554 386 582 344 582 292 C 534 314 514 348 512 410 Z"/>
-  </g>
-  <!-- 줄기 -->
-  <rect x="496" y="196" width="32" height="150" rx="16" fill="#3E8E52"/>
-
-  <!-- 하이라이트 -->
-  <ellipse cx="380" cy="470" rx="52" ry="30" fill="#FFFFFF" opacity="0.28" transform="rotate(-24 380 470)"/>
 </svg>
