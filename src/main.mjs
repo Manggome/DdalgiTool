@@ -124,6 +124,16 @@ function createWindow() {
     win = null;
     previewView = null;
   });
+  // 완료 알림이 달아 둔 Dock 배지를 창에 돌아오면 지운다
+  win.on('focus', () => {
+    if (process.platform === 'darwin') {
+      try {
+        app.dock?.setBadge('');
+      } catch {
+        /* noop */
+      }
+    }
+  });
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html')).then(
     () => flog('loadFile 성공'),
@@ -1166,19 +1176,44 @@ ipcMain.handle('pb:ask', (_e, convId, prompt, attachments, opts) =>
 
 /** 작업이 끝났을 때 알림. force 면 창을 보고 있어도 알린다(다른 탭에서 끝난 경우). */
 ipcMain.handle('pb:notifyDone', (_e, { title, body }) => {
+  const t = String(title || '딸각기획').replace(/\s+/g, ' ');
+  const b = String(body || '작업이 끝났습니다.').replace(/\s+/g, ' ');
   try {
-    if (!Notification.isSupported()) return;
-    // 창을 보고 있어도 OS 알림으로 확실히 알린다 (사용자 요청 — 인앱 토스트만으로는 놓침).
-    const n = new Notification({ title: title || '딸각기획', body: body || '작업이 끝났습니다.' });
-    n.on('click', () => {
-      if (win) {
-        if (win.isMinimized()) win.restore();
-        win.show();
-        win.focus();
+    if (process.platform === 'darwin') {
+      // macOS 26(Tahoe)은 Electron 33 의 구형 알림 API 를 조용히 버린다
+      // (호출은 성공하는데 알림 센터에 등록조차 안 됨 — ncprefs 실측).
+      // 시스템 osascript 로 보내고, 알림음은 afplay 로 따로 보장한다 (배너가 막혀도 들리게).
+      const script = `display notification ${JSON.stringify(b)} with title ${JSON.stringify(t)}`;
+      execFile('osascript', ['-e', script], { timeout: 10000 }, (err) => {
+        if (err) flog('알림(osascript) 실패: ' + err.message);
+      });
+      execFile('afplay', ['/System/Library/Sounds/Glass.aiff'], { timeout: 10000 }, () => {});
+      // 자리 비움 대비 — Dock 아이콘을 주의 끌기로 튀게 하고 배지를 단다 (창에 돌아오면 해제)
+      if (!win?.isFocused()) {
+        try {
+          app.dock?.setBadge('●');
+          app.dock?.bounce('critical');
+        } catch {
+          /* noop */
+        }
       }
-    });
-    n.show();
-    flog('알림 표시: ' + (body || ''));
+    } else {
+      if (!Notification.isSupported()) return;
+      const n = new Notification({
+        title: t,
+        body: b,
+        timeoutType: 'never', // Windows/Linux 에서 자동으로 사라지지 않게
+      });
+      n.on('click', () => {
+        if (win) {
+          if (win.isMinimized()) win.restore();
+          win.show();
+          win.focus();
+        }
+      });
+      n.show();
+    }
+    flog('알림 표시: ' + b);
   } catch (e) {
     flog('알림 실패: ' + e.message);
   }
