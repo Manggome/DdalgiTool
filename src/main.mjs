@@ -130,17 +130,52 @@ function createWindow() {
   );
 }
 
+/**
+ * macOS 26(Tahoe)은 신형 아이콘 규격이 아닌 앱을 회색 박스에 가둔다.
+ * Finder 커스텀 아이콘(NSWorkspace.setIcon)으로 지정하면 박스 없이 원형 그대로 보이므로,
+ * 첫 실행(버전마다 1회) 때 앱이 자기 번들에 스스로 적용한다. 실패해도 조용히 넘어간다.
+ */
+function applyFinderIcon() {
+  if (process.platform !== 'darwin') return;
+  const marker = `${app.getVersion()}:${process.execPath}`;
+  const cfg = loadConfig() ?? {};
+  if (cfg.finderIconApplied === marker) return;
+  const bundle = path.resolve(process.execPath, '..', '..', '..');
+  if (!bundle.endsWith('.app')) return;
+  const iconPng = app.isPackaged
+    ? path.join(process.resourcesPath, 'app', 'build', 'icon.png')
+    : path.join(__dirname, '..', 'build', 'icon.png');
+  if (!fs.existsSync(iconPng)) return;
+  const js =
+    `ObjC.import('AppKit');` +
+    `const img = $.NSImage.alloc.initWithContentsOfFile(${JSON.stringify(iconPng)});` +
+    `$.NSWorkspace.sharedWorkspace.setIconForFileOptions(img, ${JSON.stringify(bundle)}, 0);`;
+  execFile('osascript', ['-l', 'JavaScript', '-e', js], { timeout: 10000 }, (err) => {
+    if (err) {
+      flog('Finder 아이콘 지정 실패: ' + err.message);
+      return;
+    }
+    flog('Finder 아이콘 지정 완료 (회색 박스 해제): ' + bundle);
+    saveConfig({ ...(loadConfig() ?? {}), finderIconApplied: marker });
+  });
+}
+
 app.whenReady().then(
   () => {
     flog('=== app ready ===');
-    // dev 실행(npx electron .)에서는 번들 아이콘이 없어 Dock 에 Electron 기본이 뜬다 — 직접 지정.
+    // dev 실행에서 Dock 아이콘: Finder 커스텀 아이콘이 이미 적용됐으면 번들 아이콘이 딸기라
+    // dock.setIcon 을 부르지 않는다 — 비트맵 지정은 macOS 26 이 회색 박스를 씌운다.
     if (process.platform === 'darwin' && !app.isPackaged) {
-      try {
-        app.dock.setIcon(path.join(__dirname, '..', 'build', 'icon.png'));
-      } catch {
-        /* noop */
+      const marker = `${app.getVersion()}:${process.execPath}`;
+      if (loadConfig()?.finderIconApplied !== marker) {
+        try {
+          app.dock.setIcon(path.join(__dirname, '..', 'build', 'icon.png'));
+        } catch {
+          /* noop */
+        }
       }
     }
+    setTimeout(applyFinderIcon, 3000);
     createWindow();
   },
   (e) => flog('whenReady 실패: ' + String(e)),
