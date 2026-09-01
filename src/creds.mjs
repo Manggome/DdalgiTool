@@ -52,3 +52,42 @@ export function deleteCred(name) {
     /* noop */
   }
 }
+
+/**
+ * 키체인을 못 쓰는 상태(예: ad-hoc 서명 패키지 앱이 키체인 접근을 거부당한 경우)에서
+ * 평문(enc:false)으로 저장됐던 토큰을, 키체인이 되는 실행에서 다시 암호화한다.
+ * 치유된 항목 이름 배열을 돌려준다. 앱 시작 때 1회 호출.
+ */
+export function reencryptPlaintextCreds() {
+  if (!safeStorage.isEncryptionAvailable()) return [];
+  let files = [];
+  try {
+    files = fs.readdirSync(DIR).filter((f) => f.endsWith('.cred'));
+  } catch {
+    return [];
+  }
+  const healed = [];
+  for (const f of files) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(path.join(DIR, f), 'utf-8'));
+      if (raw.enc) continue;
+      const json = Buffer.from(raw.data, 'base64').toString('utf-8');
+      JSON.parse(json); // 깨진 파일이면 여기서 걸러진다
+      const enc = safeStorage.encryptString(json);
+      fs.writeFileSync(path.join(DIR, f), JSON.stringify({ enc: true, data: enc.toString('base64') }));
+      healed.push(f.replace(/\.cred$/, ''));
+    } catch {
+      /* 항목 하나가 실패해도 나머지는 계속 */
+    }
+  }
+  return healed;
+}
+
+/** 이 실행에서 키체인 기반 암호화가 가능한지 (경고 표시용) */
+export function credEncryptionAvailable() {
+  try {
+    return safeStorage.isEncryptionAvailable();
+  } catch {
+    return false;
+  }
+}
