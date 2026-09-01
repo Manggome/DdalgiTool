@@ -16,6 +16,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import { loadConfig, saveConfig, flog, isUsableDir, LOG_FILE } from './config.mjs';
+import { reencryptPlaintextCreds, credEncryptionAvailable } from './creds.mjs';
 import {
   WarmSession,
   getContextUsage,
@@ -171,6 +172,17 @@ app.whenReady().then(
       }
     }
     setTimeout(clearFinderIcon, 3000);
+    // 키체인 없이(평문) 저장됐던 연동 토큰이 있으면 다시 암호화한다.
+    try {
+      const healed = reencryptPlaintextCreds();
+      if (healed.length) {
+        flog('연동 토큰 재암호화(평문 → 키체인): ' + healed.join(', '));
+      } else if (process.platform === 'darwin' && !credEncryptionAvailable()) {
+        flog('경고: 키체인 접근 불가 — 이 실행에서 저장하는 연동 토큰은 암호화되지 않음 (실행 시 키체인 허용을 눌러주세요)');
+      }
+    } catch (e) {
+      flog('토큰 재암호화 실패: ' + String(e));
+    }
     createWindow();
   },
   (e) => flog('whenReady 실패: ' + String(e)),
