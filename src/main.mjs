@@ -141,6 +141,116 @@ function createWindow() {
   );
 }
 
+// ---- 플로팅 알림 카드 (항상 위에 뜨는 작은 창) ----
+// OS 알림 센터를 쓰지 않고(macOS 26 이 Electron 알림을 버림·서명 필요) 앱이 직접 카드 창을 띄운다.
+// 메인 창을 보고 있지 않을 때 승인 요청·작업 완료를 다른 앱 위에 보여 주고, 그 자리에서 처리할 수 있다.
+
+const ALERT_W = 400;
+const ALERT_MAX_H = 900;
+let alertWin = null;
+let alertReady = false;
+/** key → 카드. perm 카드는 'perm:<id>', 완료 카드는 'done:<n>'. */
+const alertItems = new Map();
+let alertSeq = 0;
+
+function alertOrigin() {
+  const wa = screen.getPrimaryDisplay().workArea;
+  return { x: wa.x + wa.width - ALERT_W - 14, y: wa.y + 14 };
+}
+
+function ensureAlertWin() {
+  if (alertWin) return alertWin;
+  const { x, y } = alertOrigin();
+  alertWin = new BrowserWindow({
+    width: ALERT_W,
+    height: 10,
+    x,
+    y,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    focusable: false, // 클릭은 받되 키보드 포커스·앱 전환은 훔치지 않는다
+    ...(process.platform === 'darwin' ? { type: 'panel' } : {}),
+    webPreferences: {
+      preload: path.join(__dirname, 'alert-preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  alertWin.setAlwaysOnTop(true, 'screen-saver');
+  alertWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  alertWin.webContents.on('did-finish-load', () => {
+    alertReady = true;
+    syncAlerts();
+  });
+  alertWin.on('closed', () => {
+    alertWin = null;
+    alertReady = false;
+  });
+  alertWin.loadFile(path.join(__dirname, 'renderer', 'alert.html')).catch((e) => flog('alert 창 로드 실패: ' + e));
+  return alertWin;
+}
+
+/** 카드 목록을 창에 반영한다. 비면 숨긴다. */
+function syncAlerts() {
+  if (alertItems.size === 0) {
+    if (alertWin?.isVisible()) alertWin.hide();
+    return;
+  }
+  const w = ensureAlertWin();
+  if (!alertReady) return;
+  w.webContents.send('alert:items', [...alertItems.values()]);
+}
+
+function pushAlert(item) {
+  alertItems.set(item.key, item);
+  syncAlerts();
+}
+
+function dropAlert(key) {
+  if (alertItems.delete(key)) syncAlerts();
+}
+
+/** 시스템 사운드 — macOS 는 afplay, 그 외는 Notification 이 알아서 낸다. */
+function playSound(name) {
+  if (process.platform !== 'darwin') return;
+  execFile('afplay', [`/System/Library/Sounds/${name}.aiff`], { timeout: 10000 }, () => {});
+}
+
+ipcMain.on('alert:resize', (_e, h) => {
+  if (!alertWin) return;
+  const H = Math.max(1, Math.min(Math.round(Number(h) || 0), ALERT_MAX_H));
+  if (alertItems.size === 0 || H <= 1) {
+    if (alertWin.isVisible()) alertWin.hide();
+    return;
+  }
+  const { x, y } = alertOrigin();
+  alertWin.setBounds({ x, y, width: ALERT_W, height: H });
+  if (!alertWin.isVisible()) alertWin.showInactive();
+});
+
+ipcMain.on('alert:decide', (_e, { id, decision }) => resolvePermission(String(id), decision));
+
+ipcMain.on('alert:dismiss', (_e, { key }) => dropAlert(String(key)));
+
+ipcMain.on('alert:open', (_e, { key }) => {
+  dropAlert(String(key));
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
+});
+
 /**
  * macOS 26(Tahoe)은 규격 스쿼클이 아닌 아이콘을 회색 판에 가두고 축소한다.
  * 해결: 아이콘 아트를 모서리까지 채운 정사각형(icon-mac.png → icns)으로 주면
@@ -726,10 +836,16 @@ function askPermission(toolName, input, opts) {
   return new Promise((resolve) => {
     pendingPerms.set(id, { resolve, suggestions: opts?.suggestions, writeKey: opts?.writeKey });
     send('pb:permissionAsk', payload);
+    // 메인 창을 보고 있지 않으면 다른 앱 위에 플로팅 카드로도 띄워 그 자리에서 처리하게 한다.
+    if (!win.isFocused()) {
+      pushAlert({ key: `perm:${id}`, kind: 'perm', ...payload });
+      playSound('Tink');
+    }
     // 사용자가 턴을 중지하면 대기 중인 확인도 정리한다.
     opts?.signal?.addEventListener('abort', () => {
       if (pendingPerms.delete(id)) {
         send('pb:permissionClose', { id });
+        dropAlert(`perm:${id}`);
         resolve({ behavior: 'deny', message: '사용자가 작업을 중지했습니다.' });
       }
     });
@@ -960,10 +1076,16 @@ app.whenReady().then(() => {
 
 ipcMain.handle('conn:meter', () => meterStats());
 
-ipcMain.handle('pb:permissionReply', (_e, { id, decision }) => {
+ipcMain.handle('pb:permissionReply', (_e, { id, decision }) => resolvePermission(String(id), decision));
+
+/** 승인 응답 처리 — 메인 창의 승인 독과 플로팅 카드 어느 쪽에서 눌러도 여기로 모인다. */
+function resolvePermission(id, decision) {
   const p = pendingPerms.get(id);
   if (!p) return;
   pendingPerms.delete(id);
+  // 다른 쪽 화면에 남아 있는 같은 요청을 치운다
+  send('pb:permissionClose', { id });
+  dropAlert(`perm:${id}`);
   if (decision === 'allow') {
     p.resolve({ behavior: 'allow' });
   } else if (decision === 'always') {
@@ -977,7 +1099,7 @@ ipcMain.handle('pb:permissionReply', (_e, { id, decision }) => {
   } else {
     p.resolve({ behavior: 'deny', message: '사용자가 이 작업을 거부했습니다.' });
   }
-});
+}
 
 // ---- 사용량 집계 ----
 
@@ -1175,21 +1297,16 @@ ipcMain.handle('pb:ask', (_e, convId, prompt, attachments, opts) =>
 );
 
 /** 작업이 끝났을 때 알림. force 면 창을 보고 있어도 알린다(다른 탭에서 끝난 경우). */
-ipcMain.handle('pb:notifyDone', (_e, { title, body }) => {
-  const t = String(title || '딸각기획').replace(/\s+/g, ' ');
+ipcMain.handle('pb:notifyDone', (_e, { title, body, status }) => {
+  const t = String(title || '작업 완료').replace(/\s+/g, ' ');
   const b = String(body || '작업이 끝났습니다.').replace(/\s+/g, ' ');
   try {
-    if (process.platform === 'darwin') {
-      // macOS 26(Tahoe)은 Electron 33 의 구형 알림 API 를 조용히 버린다
-      // (호출은 성공하는데 알림 센터에 등록조차 안 됨 — ncprefs 실측).
-      // 시스템 osascript 로 보내고, 알림음은 afplay 로 따로 보장한다 (배너가 막혀도 들리게).
-      const script = `display notification ${JSON.stringify(b)} with title ${JSON.stringify(t)}`;
-      execFile('osascript', ['-e', script], { timeout: 10000 }, (err) => {
-        if (err) flog('알림(osascript) 실패: ' + err.message);
-      });
-      execFile('afplay', ['/System/Library/Sounds/Glass.aiff'], { timeout: 10000 }, () => {});
-      // 자리 비움 대비 — Dock 아이콘을 주의 끌기로 튀게 하고 배지를 단다 (창에 돌아오면 해제)
-      if (!win?.isFocused()) {
+    // 알림음은 어디서든 들리게 항상 낸다 (macOS 26 은 Electron 알림을 버려서 OS 알림에 의존하지 않는다)
+    playSound('Glass');
+    if (!win?.isFocused()) {
+      // 다른 앱을 보고 있으면 항상 위에 뜨는 카드로 알리고(닫을 때까지 남음), Dock 도 튀게 한다
+      pushAlert({ key: `done:${++alertSeq}`, kind: 'done', title: t, body: b, status: status || 'ok' });
+      if (process.platform === 'darwin') {
         try {
           app.dock?.setBadge('●');
           app.dock?.bounce('critical');
@@ -1197,13 +1314,10 @@ ipcMain.handle('pb:notifyDone', (_e, { title, body }) => {
           /* noop */
         }
       }
-    } else {
-      if (!Notification.isSupported()) return;
-      const n = new Notification({
-        title: t,
-        body: b,
-        timeoutType: 'never', // Windows/Linux 에서 자동으로 사라지지 않게
-      });
+    }
+    if (process.platform !== 'darwin' && Notification.isSupported()) {
+      // Windows/Linux 는 OS 알림도 정상 동작하므로 함께 보낸다
+      const n = new Notification({ title: t, body: b, timeoutType: 'never' });
       n.on('click', () => {
         if (win) {
           if (win.isMinimized()) win.restore();

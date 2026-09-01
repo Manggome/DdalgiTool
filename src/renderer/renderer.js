@@ -1609,12 +1609,14 @@ async function startTurn(c, r, text, atts, slash = false) {
     void pb.notifyDone({
       title: doneLabel,
       body: `${c.title || '작업'} · ${summary.elapsed} · 작업 ${summary.tools}건`,
+      status: res.status,
       force: true, // 창을 보고 있어도 다른 탭 결과는 알린다
     });
   } else if (Date.now() - r.work.startedAt > 20000) {
     void pb.notifyDone({
       title: doneLabel,
       body: `${c.title || '작업'} · ${summary.elapsed} · 작업 ${summary.tools}건`,
+      status: res.status,
     });
   }
 

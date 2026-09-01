@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <title>딸각기획 알림</title>
+    <style>
+      /* 항상 위에 떠 있는 카드 — 창 배경은 투명, 카드만 보인다 */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: transparent;
+        font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard', system-ui, sans-serif;
+        color: #ececf1;
+        -webkit-font-smoothing: antialiased;
+        user-select: none;
+        overflow: hidden;
+      }
+      #list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 6px;
+      }
+      .card {
+        background: #1c1c22;
+        border: 1px solid rgba(255, 255, 255, 0.09);
+        border-radius: 18px;
+        padding: 16px 18px 14px;
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+        -webkit-app-region: no-drag;
+      }
+      .head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .title {
+        font-size: 17px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      .badge {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        padding: 4px 10px;
+        border-radius: 8px;
+        background: #e2603a;
+        color: #fff;
+        white-space: nowrap;
+      }
+      .badge.done {
+        background: #2f9e6b;
+      }
+      .badge.warn {
+        background: #b8862b;
+      }
+      .sub {
+        margin-top: 4px;
+        font-size: 12.5px;
+        color: #9b9ba6;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .summary {
+        margin-top: 12px;
+        background: #0f0f13;
+        border-radius: 12px;
+        padding: 12px 14px;
+        font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: #d6d6de;
+        white-space: pre-wrap;
+        word-break: break-all;
+        max-height: 120px;
+        overflow-y: auto;
+        user-select: text;
+      }
+      .desc {
+        margin-top: 10px;
+        font-size: 12px;
+        color: #8f8f9b;
+        line-height: 1.45;
+      }
+      .body {
+        margin-top: 8px;
+        font-size: 14px;
+        color: #d6d6de;
+        line-height: 1.45;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        margin-top: 14px;
+      }
+      button {
+        flex: 1;
+        border: 0;
+        border-radius: 12px;
+        padding: 12px 14px;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+        font-family: inherit;
+        transition: filter 0.12s ease, transform 0.05s ease;
+      }
+      button:hover {
+        filter: brightness(1.12);
+      }
+      button:active {
+        transform: translateY(1px);
+      }
+      .allow {
+        background: #e2603a;
+        color: #fff;
+      }
+      .deny {
+        background: #2a2a31;
+        color: #ececf1;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .open {
+        background: #e33d4b;
+        color: #fff;
+      }
+      .always {
+        margin-top: 10px;
+        width: 100%;
+        background: transparent;
+        color: #b7b7c2;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        font-weight: 600;
+        font-size: 13.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="list"></div>
+    <script src="alert.js"></script>
+  </body>
+</html>
