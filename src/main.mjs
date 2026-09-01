@@ -131,51 +131,46 @@ function createWindow() {
 }
 
 /**
- * macOS 26(Tahoe)은 신형 아이콘 규격이 아닌 앱을 회색 박스에 가둔다.
- * Finder 커스텀 아이콘(NSWorkspace.setIcon)으로 지정하면 박스 없이 원형 그대로 보이므로,
- * 첫 실행(버전마다 1회) 때 앱이 자기 번들에 스스로 적용한다. 실패해도 조용히 넘어간다.
+ * macOS 26(Tahoe)은 규격 스쿼클이 아닌 아이콘을 회색 판에 가두고 축소한다.
+ * 해결: 아이콘 아트를 모서리까지 채운 정사각형(icon-mac.png → icns)으로 주면
+ * 시스템이 직접 규격 스쿼클로 잘라 준다 — 파인더·독·DMG 전부, 실행 전에도.
+ * 0.7.4~0.7.5 는 Finder 커스텀 아이콘을 씌우는 방식이었는데, 그건 번들 icns 를
+ * 가려 버리므로 남아 있으면 1회 제거한다. 실패해도 조용히 넘어간다.
  */
-function applyFinderIcon() {
+function clearFinderIcon() {
   if (process.platform !== 'darwin') return;
-  const marker = `${app.getVersion()}:${process.execPath}`;
-  const cfg = loadConfig() ?? {};
-  if (cfg.finderIconApplied === marker) return;
   const bundle = path.resolve(process.execPath, '..', '..', '..');
   if (!bundle.endsWith('.app')) return;
-  const iconPng = app.isPackaged
-    ? path.join(process.resourcesPath, 'app', 'build', 'icon.png')
-    : path.join(__dirname, '..', 'build', 'icon.png');
-  if (!fs.existsSync(iconPng)) return;
   const js =
     `ObjC.import('AppKit');` +
-    `const img = $.NSImage.alloc.initWithContentsOfFile(${JSON.stringify(iconPng)});` +
-    `$.NSWorkspace.sharedWorkspace.setIconForFileOptions(img, ${JSON.stringify(bundle)}, 0);`;
+    `$.NSWorkspace.sharedWorkspace.setIconForFileOptions($(), ${JSON.stringify(bundle)}, 0);`;
   execFile('osascript', ['-l', 'JavaScript', '-e', js], { timeout: 10000 }, (err) => {
     if (err) {
-      flog('Finder 아이콘 지정 실패: ' + err.message);
+      flog('Finder 커스텀 아이콘 제거 실패: ' + err.message);
       return;
     }
-    flog('Finder 아이콘 지정 완료 (회색 박스 해제): ' + bundle);
-    saveConfig({ ...(loadConfig() ?? {}), finderIconApplied: marker });
+    const cfg = loadConfig() ?? {};
+    if (cfg.finderIconApplied) {
+      delete cfg.finderIconApplied;
+      saveConfig(cfg);
+      flog('Finder 커스텀 아이콘 제거 완료 (네이티브 icns 사용): ' + bundle);
+    }
   });
 }
 
 app.whenReady().then(
   () => {
     flog('=== app ready ===');
-    // dev 실행에서 Dock 아이콘: Finder 커스텀 아이콘이 이미 적용됐으면 번들 아이콘이 딸기라
-    // dock.setIcon 을 부르지 않는다 — 비트맵 지정은 macOS 26 이 회색 박스를 씌운다.
+    // dev 실행 Dock 아이콘 — 정사각 풀블리드 아트를 주면 macOS 26 이 스쿼클로 잘라 준다
+    // (패키지 앱은 번들 icns 가 같은 아트라 지정할 필요 없음)
     if (process.platform === 'darwin' && !app.isPackaged) {
-      const marker = `${app.getVersion()}:${process.execPath}`;
-      if (loadConfig()?.finderIconApplied !== marker) {
-        try {
-          app.dock.setIcon(path.join(__dirname, '..', 'build', 'icon.png'));
-        } catch {
-          /* noop */
-        }
+      try {
+        app.dock.setIcon(path.join(__dirname, '..', 'build', 'icon-mac.png'));
+      } catch {
+        /* noop */
       }
     }
-    setTimeout(applyFinderIcon, 3000);
+    setTimeout(clearFinderIcon, 3000);
     createWindow();
   },
   (e) => flog('whenReady 실패: ' + String(e)),
