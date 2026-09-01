@@ -1,7 +1,7 @@
 {
   "name": "ddalgi-tool",
   "productName": "딸각기획",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "private": true,
   "description": "딸각기획(딸기툴) — 대화형 게임 기획자 툴. Claude Agent SDK 내장, 유니티·깃·슬랙·트렐로·구글 워크스페이스 연동",
   "type": "module",
