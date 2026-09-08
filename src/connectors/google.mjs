@@ -56,9 +56,64 @@ export function driveList(folderId, pageSize = 50) {
   return driveSearch('', [folderId], pageSize);
 }
 
-/** 구글 독스 본문을 평문으로. 표는 셀을 탭으로 구분한다. 너무 길면 잘라서 표시한다. */
+/** 구글 파일(독스/시트/슬라이드)의 댓글을 답글까지 읽는다. Drive API — 독스 API 아님.
+ *  resolved(해결됨) 여부와 인용된 원문(quotedFileContent)도 함께. includeAll 이 false 면 미해결만. */
+export async function docComments(fileId, { includeResolved = true } = {}) {
+  const out = [];
+  let pageToken = '';
+  // Drive 댓글은 fields 를 명시해야 content·author·답글이 온다.
+  const fields =
+    'nextPageToken,comments(id,author/displayName,content,quotedFileContent/value,resolved,createdTime,modifiedTime,replies(author/displayName,content,createdTime))';
+  do {
+    const u = new URL(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/comments`);
+    u.search = new URLSearchParams({
+      fields,
+      pageSize: '100',
+      includeDeleted: 'false',
+      ...(pageToken ? { pageToken } : {}),
+    }).toString();
+    const d = await gget(u.toString());
+    for (const c of d.comments ?? []) {
+      if (!includeResolved && c.resolved) continue;
+      out.push({
+        author: c.author?.displayName || '(알 수 없음)',
+        content: c.content || '',
+        quoted: c.quotedFileContent?.value || '',
+        resolved: !!c.resolved,
+        createdTime: c.createdTime || '',
+        replies: (c.replies ?? []).map((r) => ({
+          author: r.author?.displayName || '(알 수 없음)',
+          content: r.content || '',
+          createdTime: r.createdTime || '',
+        })),
+      });
+    }
+    pageToken = d.nextPageToken || '';
+  } while (pageToken);
+  return out;
+}
+
+/** 문서 탭(중첩 자식 탭 포함)을 표시 순서대로 평탄화한다. 각 항목: {title, content}. */
+function flattenDocTabs(tabs) {
+  const out = [];
+  const visit = (list) => {
+    for (const t of list ?? []) {
+      const content = t.documentTab?.body?.content;
+      if (content) out.push({ title: t.tabProperties?.title || '', content });
+      if (t.childTabs?.length) visit(t.childTabs);
+    }
+  };
+  visit(tabs);
+  return out;
+}
+
+/** 구글 독스 본문을 평문으로. 표는 셀을 탭으로 구분한다. 너무 길면 잘라서 표시한다.
+ *  문서에 탭이 여러 개면(문서 탭 기능) 모든 탭을 제목과 함께 이어서 읽는다. */
 export async function docRead(docId, maxChars = 60000) {
-  const d = await gget(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}`);
+  // includeTabsContent=true 를 줘야 body 가 아니라 모든 탭이 tabs[] 로 온다 (없으면 첫 탭만).
+  const d = await gget(
+    `https://docs.googleapis.com/v1/documents/${encodeURIComponent(docId)}?includeTabsContent=true`,
+  );
   const lines = [];
   const walk = (content) => {
     for (const el of content ?? []) {
@@ -95,14 +150,27 @@ export async function docRead(docId, maxChars = 60000) {
       }
     }
   };
-  walk(d.body?.content);
+  const docTabs = flattenDocTabs(d.tabs);
+  if (docTabs.length) {
+    const multi = docTabs.length > 1;
+    for (const t of docTabs) {
+      if (multi) {
+        if (lines.length) lines.push('');
+        lines.push(`===== 탭: ${t.title || '(제목 없음)'} =====`);
+      }
+      walk(t.content);
+    }
+  } else {
+    // 탭 기능을 안 쓰는(또는 구형) 문서는 body 로 온다.
+    walk(d.body?.content);
+  }
   let text = lines.join('\n');
   let truncated = false;
   if (text.length > maxChars) {
     text = text.slice(0, maxChars);
     truncated = true;
   }
-  return { title: d.title, text, truncated };
+  return { title: d.title, text, tabCount: docTabs.length, truncated };
 }
 
 /** 시트 메타 (탭 목록·크기). */
