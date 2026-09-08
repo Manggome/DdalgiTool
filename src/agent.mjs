@@ -88,12 +88,46 @@ const ddalgiTools = createSdkMcpServer({
     ),
     tool(
       'doc_read',
-      '구글 독스 문서를 평문(마크다운 헤딩 유지)으로 읽습니다.',
+      '구글 독스 문서를 평문(마크다운 헤딩 유지)으로 읽습니다. 문서에 탭이 여러 개면 모든 탭을 "===== 탭: 이름 =====" 구분선과 함께 이어서 읽습니다.',
       { doc_id: z.string().describe('문서 ID (drive_search 결과의 id)') },
       async ({ doc_id }) => {
         try {
           const d = await g.docRead(doc_id);
-          return text(`# ${d.title}\n\n${d.text}${d.truncated ? '\n\n…(길어서 잘림 — 필요한 절만 다시 요청)' : ''}`);
+          const tabNote = d.tabCount > 1 ? ` · 탭 ${d.tabCount}개` : '';
+          return text(
+            `# ${d.title}${tabNote}\n\n${d.text}${d.truncated ? '\n\n…(길어서 잘림 — 필요한 절만 다시 요청)' : ''}`,
+          );
+        } catch (e) {
+          return errText(e);
+        }
+      },
+    ),
+    tool(
+      'doc_comments',
+      '구글 독스/시트/슬라이드의 댓글을 답글까지 읽습니다. 인용된 원문과 해결(resolved) 여부도 표시. 리뷰 피드백·수정 요청을 파악할 때 사용.',
+      {
+        file_id: z.string().describe('파일 ID (drive_search 결과의 id — 독스/시트/슬라이드 모두 가능)'),
+        include_resolved: z
+          .boolean()
+          .optional()
+          .describe('해결된 댓글도 포함할지 (기본 true). false 면 미해결 댓글만'),
+      },
+      async ({ file_id, include_resolved }) => {
+        try {
+          const cs = await g.docComments(file_id, { includeResolved: include_resolved !== false });
+          if (!cs.length) return text('댓글이 없습니다.');
+          const fmt = (t) => (t ? t.slice(0, 10) : '');
+          const blocks = cs.map((c, i) => {
+            const head = `### ${i + 1}. ${c.author}${c.resolved ? ' [해결됨]' : ''}${c.createdTime ? ` · ${fmt(c.createdTime)}` : ''}`;
+            const lines = [head];
+            if (c.quoted) lines.push(`> 원문: ${c.quoted.replace(/\n/g, ' ').slice(0, 200)}`);
+            lines.push(c.content || '(내용 없음)');
+            for (const r of c.replies)
+              lines.push(`   ↳ ${r.author}${r.createdTime ? ` (${fmt(r.createdTime)})` : ''}: ${r.content}`);
+            return lines.join('\n');
+          });
+          const open = cs.filter((c) => !c.resolved).length;
+          return text(`# 댓글 ${cs.length}개 (미해결 ${open}개)\n\n${blocks.join('\n\n')}`);
         } catch (e) {
           return errText(e);
         }
@@ -715,7 +749,7 @@ function buildAppendPrompt(knowledgeDir, skillsDir) {
     '',
     '## 연동 도구 (mcp__ddalgi__*)',
     '구글 드라이브/독스/시트·슬랙·트렐로는 아래 내장 도구로 접근합니다 (WebFetch 로 열지 마세요):',
-    '- 구글 읽기: drive_search → doc_read(독스) / slides_read(슬라이드) / sheet_read(범위 생략=탭 목록)',
+    '- 구글 읽기: drive_search → doc_read(독스) / slides_read(슬라이드) / sheet_read(범위 생략=탭 목록) / doc_comments(댓글·답글)',
     '- 구글 쓰기[승인]: sheet_update / doc_replace·doc_append·doc_insert_after(서식 상속 삽입)·doc_delete_paragraph·doc_set_style·doc_set_indent·doc_set_bullets / slides_replace·slides_add_slide(슬라이드 수정) / drive_create(새 독스·슬라이드·시트)',
     '- 구글 파일 관리[승인]: drive_copy(사본) / drive_rename(이름 변경) / drive_move(폴더 이동)',
     '- **삭제 금지**: 어떤 파일·카드도 삭제·보관하지 않습니다. 삭제가 필요해 보이면 drive_rename/trello_card_update 로 이름 앞에 `[삭제용] ` 을 붙여 표시만 하고, 실제 삭제는 사람이 합니다.',
@@ -771,6 +805,7 @@ function buildAppendPrompt(knowledgeDir, skillsDir) {
 const DDALGI_READ_TOOLS = [
   'mcp__ddalgi__drive_search',
   'mcp__ddalgi__doc_read',
+  'mcp__ddalgi__doc_comments',
   'mcp__ddalgi__slides_read',
   'mcp__ddalgi__sheet_read',
   'mcp__ddalgi__slack_channels',
