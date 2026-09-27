@@ -73,6 +73,9 @@ let win = null;
 let previewView = null;
 let workDir = null;
 let currentModel = 'claude-sonnet-5';
+/** 노력(effort) — '' 면 모델 기본값. low/medium/high/xhigh/max. 설정에 저장한다. */
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+let currentEffort = EFFORTS.includes(loadConfig()?.effort) ? loadConfig().effort : '';
 // 권한 모드는 메인이 소유하고 설정 파일에 저장한다. PB_PERMISSION_MODE 로 덮어쓸 수 있다(개발용).
 let permissionMode =
   process.env.PB_PERMISSION_MODE || loadConfig()?.permissionMode || 'bypassPermissions';
@@ -568,7 +571,8 @@ ipcMain.handle('pb:preview:clearErrors', () => {
 
 /** 작업 폴더 안의 HTML 파일 목록(깊이 3까지). */
 function listHtml(root) {
-  const skip = new Set(['node_modules', '.git', 'dist', 'build', '.venv', 'venv', '__pycache__']);
+  // 빌드 산출물(dist-app/win-unpacked 등)의 LICENSES.chromium.html 같은 파일이 미리보기에 잡히지 않게 제외
+  const skip = new Set(['node_modules', '.git', 'dist', 'dist-app', 'build', 'out', 'release', 'win-unpacked', 'mac-arm64', '.venv', 'venv', '__pycache__']);
   const out = [];
   const walk = (dir, rel, depth) => {
     let entries;
@@ -610,6 +614,7 @@ function startWatch(root) {
       if (!filename) return;
       const f = String(filename);
       if (f.includes('node_modules') || f.includes('/.git/') || f.startsWith('.git')) return;
+      if (/(^|\/)(dist-app|win-unpacked|mac-arm64)(\/|$)/.test(f)) return; // 빌드 산출물
       if (path.basename(f).startsWith('.')) return; // 에디터 임시 파일
       clearTimeout(timer);
       timer = setTimeout(() => {
@@ -771,6 +776,16 @@ ipcMain.handle('pb:savePastedImage', (_e, { dataUrl, ext }) => {
 ipcMain.handle('pb:setModel', (_e, m) => {
   if (m) currentModel = m;
 });
+
+ipcMain.handle('pb:setEffort', (_e, e) => {
+  const v = EFFORTS.includes(e) ? e : '';
+  if (v !== currentEffort) {
+    currentEffort = v;
+    saveConfig({ ...(loadConfig() ?? {}), effort: v });
+  }
+  return currentEffort;
+});
+ipcMain.handle('pb:getEffort', () => currentEffort);
 
 ipcMain.handle('pb:getTheme', () => ({ theme, resolved: resolvedTheme() }));
 
@@ -1229,7 +1244,7 @@ async function runAsk(convId, prompt, attachments, opts) {
     if (hint) fullPrompt = hint + fullPrompt;
   }
   flog(
-    `턴 시작 (conv=${convId}, model=${currentModel}, mode=${permissionMode}) ` +
+    `턴 시작 (conv=${convId}, model=${currentModel}, effort=${currentEffort || '기본'}, mode=${permissionMode}) ` +
       `프롬프트: ${String(prompt).replace(/\s+/g, ' ').slice(0, 50)}`,
   );
   try {
@@ -1240,6 +1255,7 @@ async function runAsk(convId, prompt, attachments, opts) {
       prompt: fullPrompt,
       sessionId: c.sessionId,
       model: currentModel,
+      effort: currentEffort,
       permissionMode,
       canUseTool: permissionMode === 'bypassPermissions' ? undefined : askPermission,
       additionalDirectories: [...new Set(extraDirs)],

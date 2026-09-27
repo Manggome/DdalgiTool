@@ -913,6 +913,7 @@ export class WarmSession {
     return JSON.stringify([
       o.workDir,
       o.model,
+      o.effort || '',
       o.knowledgeDir,
       o.skillsDir,
       o.permissionMode,
@@ -938,6 +939,8 @@ export class WarmSession {
       options: {
         cwd: o.workDir,
         model: o.model || 'claude-sonnet-5',
+        // 노력(effort): 비우면 모델 기본값. Haiku 4.5 는 effort 미지원이라 보내지 않는다.
+        ...(o.effort && !/haiku/.test(o.model || '') ? { effort: o.effort } : {}),
         ...(o.additionalDirectories?.length ? { additionalDirectories: o.additionalDirectories } : {}),
         systemPrompt: {
           type: 'preset',

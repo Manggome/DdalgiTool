@@ -200,6 +200,17 @@
                 </select>
               </label>
               <label class="model-select">
+                노력
+                <select id="effortSelect" title="얼마나 깊게 생각할지 — 높을수록 정확하지만 느리고 토큰을 더 씁니다 (Haiku 는 미지원)">
+                  <option value="">기본 — 모델 기본값</option>
+                  <option value="low">낮음 — 빠름·간단한 일</option>
+                  <option value="medium">보통</option>
+                  <option value="high">높음</option>
+                  <option value="xhigh">매우 높음 — 복잡한 작업</option>
+                  <option value="max">최대 — 느림·토큰 많이</option>
+                </select>
+              </label>
+              <label class="model-select">
                 권한
                 <select id="permSelect" title="에이전트가 도구를 쓸 때 확인을 받을지">
                   <option value="bypassPermissions">자동 승인 — 확인 없이 진행</option>
