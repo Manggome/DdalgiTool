@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld('pb', {
   stop: (convId) => ipcRenderer.invoke('pb:stop', convId),
   notifyDone: (payload) => ipcRenderer.invoke('pb:notifyDone', payload),
   setModel: (m) => ipcRenderer.invoke('pb:setModel', m),
+  setEffort: (e) => ipcRenderer.invoke('pb:setEffort', e),
+  getEffort: () => ipcRenderer.invoke('pb:getEffort'),
   setPermissionMode: (m) => ipcRenderer.invoke('pb:setPermissionMode', m),
   getTheme: () => ipcRenderer.invoke('pb:getTheme'),
   setTheme: (t) => ipcRenderer.invoke('pb:setTheme', t),

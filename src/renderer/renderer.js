@@ -37,6 +37,7 @@ const el = {
   attachMenu: $('#attachMenu'),
   composer: document.querySelector('.composer'),
   modelSelect: $('#modelSelect'),
+  effortSelect: $('#effortSelect'),
   permSelect: $('#permSelect'),
   usageBtn: $('#usageBtn'),
   usageCost: $('#usageCost'),
@@ -2494,6 +2495,9 @@ function bind() {
     closeTabMenu();
   });
 
+  el.effortSelect.addEventListener('change', () => {
+    void pb.setEffort(el.effortSelect.value);
+  });
   el.modelSelect.addEventListener('change', () => {
     localStorage.setItem(MODEL_KEY, el.modelSelect.value);
     void pb.setModel(el.modelSelect.value);
@@ -2830,6 +2834,10 @@ async function main() {
   if (hasOption) el.modelSelect.value = savedModel;
   else localStorage.removeItem(MODEL_KEY);
   void pb.setModel(el.modelSelect.value);
+  // 노력(effort)은 메인이 설정 파일에 저장한다 — 시작 때 불러와 표시만 맞춘다
+  void pb.getEffort().then((v) => {
+    el.effortSelect.value = v || '';
+  });
 
   if (localStorage.getItem(PREVIEW_OFF_KEY) === '1') previewOff = true;
 
