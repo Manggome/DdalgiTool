@@ -938,7 +938,7 @@ export class WarmSession {
       prompt: input,
       options: {
         cwd: o.workDir,
-        model: o.model || 'claude-sonnet-5',
+        model: o.model || 'claude-sonnet-5-5',
         // 노력(effort): 비우면 모델 기본값. Haiku 4.5 는 effort 미지원이라 보내지 않는다.
         ...(o.effort && !/haiku/.test(o.model || '') ? { effort: o.effort } : {}),
         ...(o.additionalDirectories?.length ? { additionalDirectories: o.additionalDirectories } : {}),
@@ -1131,7 +1131,7 @@ export async function getAccountUsage(workDir, model) {
   const ac = new AbortController();
   const stream = query({
     prompt: 'hi',
-    options: { cwd: workDir, model: model || 'claude-sonnet-5', abortController: ac },
+    options: { cwd: workDir, model: model || 'claude-sonnet-5-5', abortController: ac },
   });
   try {
     const fn = stream.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
@@ -1153,7 +1153,7 @@ export async function getContextUsage(workDir, sessionId, model) {
   const ac = new AbortController();
   const stream = query({
     prompt: 'hi',
-    options: { cwd: workDir, model: model || 'claude-sonnet-5', resume: sessionId, abortController: ac },
+    options: { cwd: workDir, model: model || 'claude-sonnet-5-5', resume: sessionId, abortController: ac },
   });
   try {
     const u = stream.getContextUsage ? await stream.getContextUsage() : null;

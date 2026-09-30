@@ -72,7 +72,7 @@ const SKILLS_DIR = path.join(__dirname, 'skills');
 let win = null;
 let previewView = null;
 let workDir = null;
-let currentModel = 'claude-sonnet-5';
+let currentModel = 'claude-sonnet-5-5';
 /** 노력(effort) — '' 면 모델 기본값. low/medium/high/xhigh/max. 설정에 저장한다. */
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 let currentEffort = EFFORTS.includes(loadConfig()?.effort) ? loadConfig().effort : '';

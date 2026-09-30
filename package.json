@@ -1,7 +1,7 @@
 {
   "name": "ddalgi-tool",
   "productName": "딸각기획",
-  "version": "0.7.12",
+  "version": "0.7.13",
   "private": true,
   "description": "딸각기획(딸기툴) — 대화형 게임 기획자 툴. Claude Agent SDK 내장, 유니티·깃·슬랙·트렐로·구글 워크스페이스 연동",
   "type": "module",
@@ -13,7 +13,7 @@
     "dist:win": "electron-builder --win nsis --x64"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.283",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.285",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
@@ -22,7 +22,7 @@
     "electron-builder": "^26.15.3"
   },
   "optionalDependencies": {
-    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "^0.3.283",
-    "@anthropic-ai/claude-agent-sdk-win32-x64": "^0.3.283"
+    "@anthropic-ai/claude-agent-sdk-darwin-arm64": "^0.3.285",
+    "@anthropic-ai/claude-agent-sdk-win32-x64": "^0.3.285"
   }
 }
