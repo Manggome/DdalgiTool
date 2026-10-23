@@ -5,16 +5,16 @@
   "nodes": [
     { "id": "system:shop", "type": "system", "label": "상점", "summary": "재화로 상품·패키지 구매" },
     { "id": "currency:gem", "type": "currency", "label": "젬" },
-    { "id": "table:17Kc…:shop-info", "type": "table", "label": "Shop_Info", "group": "고양이 바캉스 데이터테이블",
-      "ref": { "kind": "sheet", "id": "17Kc…", "tab": "Shop_Info" } },
-    { "id": "doc:1QI6…", "type": "doc", "label": "패키지 기획", "ref": { "kind": "doc", "id": "1QI6…" } },
+    { "id": "table:<시트ID>:shop-info", "type": "table", "label": "Shop_Info", "group": "데이터 테이블",
+      "ref": { "kind": "sheet", "id": "<시트ID>", "tab": "Shop_Info" } },
+    { "id": "doc:<문서ID>", "type": "doc", "label": "패키지 기획", "ref": { "kind": "doc", "id": "<문서ID>" } },
     { "id": "code:Assets/Scripts/Shop/ShopManager.cs", "type": "code", "label": "ShopManager.cs",
       "ref": { "kind": "file", "path": "Assets/Scripts/Shop/ShopManager.cs", "line": 42 } },
-    { "id": "card:6941…", "type": "card", "label": "[패키지] 기획중", "ref": { "kind": "card", "id": "6941…" } }
+    { "id": "card:<카드ID>", "type": "card", "label": "[패키지] 기획중", "ref": { "kind": "card", "id": "<카드ID>" } }
   ],
   "edges": [
-    { "from": "doc:1QI6…", "to": "system:shop", "kind": "정의", "why": "패키지 기획서 1장이 상점 패키지 규칙을 정의" },
-    { "from": "system:shop", "to": "table:17Kc…:shop-info", "kind": "저장" },
+    { "from": "doc:<문서ID>", "to": "system:shop", "kind": "정의", "why": "패키지 기획서 1장이 상점 패키지 규칙을 정의" },
+    { "from": "system:shop", "to": "table:<시트ID>:shop-info", "kind": "저장" },
     { "from": "code:Assets/Scripts/Shop/ShopManager.cs", "to": "system:shop", "kind": "구현" },
     { "from": "system:shop", "to": "currency:gem", "kind": "사용", "why": "패키지 구매에 젬 소모" }
   ]

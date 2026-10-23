@@ -1,4 +1,4 @@
-appId: io.github.manggome.ddalgi-tool
+appId: io.github.manggome.ddalgi
 # 실행 파일·헬퍼 이름에 한글이 들어가면 패키징된 앱이 실행 즉시 죽는다(SIGTRAP).
 # 번들 이름은 ASCII 로 두고, 사용자에게 보이는 이름은 아래 extendInfo 의 CFBundleDisplayName 으로 준다.
 productName: Ddalgi
