@@ -192,23 +192,34 @@
               <label class="model-select">
                 모델
                 <select id="modelSelect">
+                  <option value="claude-fable-5-1">Fable 5.1 — 가장 강력 (토큰 주의)</option>
                   <option value="claude-opus-5-5">Opus 5.5 — 최신·가장 정확</option>
-                  <option value="claude-opus-5">Opus 5 — 정확</option>
-                  <option value="claude-fable-5">Fable 5 — 가장 강력 (토큰 주의)</option>
-                  <option value="claude-sonnet-5-5" selected>Sonnet 5.5 — 최신·기본·빠름</option>
+                  <option value="claude-opus-5">Opus 5</option>
+                  <option value="claude-sonnet-5-5" selected>Sonnet 5.5 — 기본·빠름</option>
                   <option value="claude-sonnet-5">Sonnet 5</option>
-                  <option value="claude-haiku-4-5-20251001">Haiku 4.5 — 가장 저렴</option>
+                  <option value="claude-haiku-5-5">Haiku 5.5 — 가장 빠르고 저렴</option>
                 </select>
               </label>
               <label class="model-select">
                 노력
-                <select id="effortSelect" title="얼마나 깊게 생각할지 — 높을수록 정확하지만 느리고 토큰을 더 씁니다 (Haiku 는 미지원)">
+                <select id="effortSelect" title="얼마나 깊게 생각할지 — 높을수록 정확하지만 느리고 토큰을 더 씁니다">
                   <option value="">기본 — 모델 기본값</option>
                   <option value="low">낮음 — 빠름·간단한 일</option>
                   <option value="medium">보통</option>
                   <option value="high">높음</option>
                   <option value="xhigh">매우 높음 — 복잡한 작업</option>
                   <option value="max">최대 — 느림·토큰 많이</option>
+                </select>
+              </label>
+              <label class="model-select">
+                비용 상한
+                <select id="budgetSelect" title="한 대화에서 쓴 비용이 이 금액을 넘으면 작업을 멈춥니다 (다시 요청하면 이어서 진행)">
+                  <option value="0">끔</option>
+                  <option value="1">$1</option>
+                  <option value="2">$2</option>
+                  <option value="5">$5</option>
+                  <option value="10">$10</option>
+                  <option value="20">$20</option>
                 </select>
               </label>
               <label class="model-select">
@@ -461,6 +472,7 @@
       </div>
     </div>
 
+    <script src="dino.js"></script>
     <script src="renderer.js"></script>
   </body>
 </html>

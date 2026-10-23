@@ -37,6 +37,7 @@ const el = {
   attachMenu: $('#attachMenu'),
   composer: document.querySelector('.composer'),
   modelSelect: $('#modelSelect'),
+  budgetSelect: $('#budgetSelect'),
   effortSelect: $('#effortSelect'),
   permSelect: $('#permSelect'),
   usageBtn: $('#usageBtn'),
@@ -155,6 +156,8 @@ const el = {
 
 const CONV_KEY = 'pb.conversations';
 const MODEL_KEY = 'pb.model';
+/** 대화당 비용 상한(USD). 0 이면 끔 — 메인이 설정 파일에 저장한다. */
+let budgetUsd = 0;
 const DEVICE_KEY = 'pb.device';
 const PANEL_KEY = 'pb.panelWidth';
 
@@ -1063,9 +1066,99 @@ function toolArg(name, input) {
   return '';
 }
 
+// ---------- 서브 에이전트 카드 ----------
+// 메인이 Agent(Task) 도구로 서브 에이전트를 띄우면, 도구 한 줄 대신 카드를 만들어
+// 안쪽 도구 사용·진행 요약(~30초마다)·완료 상태를 실시간으로 보여 준다.
+
+const SUB_TOOLS = new Set(['Agent', 'Task']);
+const SUB_MAX_LINES = 8;
+
+function subCard(r, toolUseId, init) {
+  r.subs ??= new Map();
+  let sc = r.subs.get(toolUseId);
+  if (!sc) {
+    sc = { id: toolUseId, desc: '', type: '', summary: '', status: 'running', tools: 0, tokens: 0, startedAt: Date.now(), ms: 0, lines: [], el: null };
+    r.subs.set(toolUseId, sc);
+  }
+  if (init) Object.assign(sc, init);
+  if (!sc.el && r.box) {
+    sc.el = document.createElement('details');
+    sc.el.className = 'sub-card';
+    sc.el.open = true;
+    r.box.tools.append(sc.el);
+  }
+  renderSubCard(sc);
+  return sc;
+}
+
+function renderSubCard(sc) {
+  if (!sc.el) return;
+  const st = sc.status === 'completed' ? '완료' : sc.status === 'failed' ? '실패' : sc.status === 'stopped' ? '중지' : '진행 중';
+  sc.el.classList.toggle('done', sc.status !== 'running');
+  sc.el.classList.toggle('fail', sc.status === 'failed');
+  const sum = document.createElement('summary');
+  sum.className = 'sub-head';
+  const ico = document.createElement('span');
+  ico.className = 'sub-ico';
+  ico.textContent = sc.status === 'running' ? '🤖' : sc.status === 'completed' ? '✅' : '⚠️';
+  const title = document.createElement('span');
+  title.className = 'sub-title';
+  // 좁은 창에서도 '무슨 일을 하는지'가 먼저 보이도록 제목은 작업 내용, 부가 정보는 아랫줄로
+  title.textContent = sc.desc || '서브 에이전트 작업';
+  const chip = document.createElement('span');
+  chip.className = 'sub-chip';
+  const el = sc.status === 'running' ? Date.now() - sc.startedAt : sc.ms || Date.now() - sc.startedAt;
+  chip.textContent =
+    `서브 에이전트${sc.type ? ' · ' + sc.type : ''} · ${st} · ${fmtDur(el)}` +
+    `${sc.tools ? ' · 도구 ' + sc.tools + '회' : ''}${sc.tokens ? ' · ' + fmtTok(sc.tokens) + ' 토큰' : ''}`;
+  sum.append(ico, title, chip);
+  const body = document.createElement('div');
+  body.className = 'sub-body';
+  if (sc.summary) {
+    const now = document.createElement('div');
+    now.className = 'sub-now';
+    now.textContent = (sc.status === 'running' ? '지금: ' : '결과: ') + sc.summary;
+    body.append(now);
+  }
+  for (const ln of sc.lines.slice(-SUB_MAX_LINES)) {
+    const row = document.createElement('div');
+    row.className = 'sub-line' + (ln.state ? ' ' + ln.state : '');
+    const k = document.createElement('span');
+    k.className = 'tool-kind';
+    k.textContent = ln.label;
+    const a = document.createElement('span');
+    a.className = 'tool-arg';
+    a.textContent = ln.arg;
+    row.append(k, a);
+    body.append(row);
+  }
+  if (sc.lines.length > SUB_MAX_LINES) {
+    const more = document.createElement('div');
+    more.className = 'sub-more';
+    more.textContent = `… 앞선 도구 ${sc.lines.length - SUB_MAX_LINES}개`;
+    body.prepend(more);
+  }
+  sc.el.replaceChildren(sum, body);
+}
+
+/** 진행 중 카드의 경과 시간을 1초마다 갱신한다. */
+setInterval(() => {
+  for (const r of rt.values()) {
+    if (!r.subs) continue;
+    for (const sc of r.subs.values()) if (sc.status === 'running' && sc.el) renderSubCard(sc);
+  }
+}, 1000);
+
 function addToolLine(r, name, input, id) {
   const label = TOOL_LABEL[name] || name;
   const arg = toolArg(name, input);
+
+  if (SUB_TOOLS.has(name)) {
+    subCard(r, id, { desc: input?.description || '', type: input?.subagent_type || '' });
+    addWorkStep(r, 'tool', '서브 에이전트', input?.description || '', id);
+    if (isActive(r.id)) scrollDown();
+    return;
+  }
 
   // 대화에 남는 기록 (활성 탭일 때만 DOM 에 붙인다)
   if (r.box) {
@@ -1568,7 +1661,9 @@ async function startTurn(c, r, text, atts, slash = false) {
   r.busy = true;
   r.buf = '';
   r.box = isActive(c.id) ? addAssistantMsg() : null;
+  r.subs = new Map();
   startWork(r);
+  window.DinoGame?.armOffer(c.id, () => r.busy && isActive(c.id));
   if (isActive(c.id)) setBusyUI(true);
   renderHistory();
 
@@ -1594,8 +1689,13 @@ async function startTurn(c, r, text, atts, slash = false) {
     r.box.md.innerHTML = renderMd(finalText);
     if (r.work.thinking) appendThinkingBlock(r.box, r.work.thinking);
     appendTurnSummary(r.box, res, summary);
+    appendTurnActions(r.box, c, res);
   }
   r.box = null;
+  window.DinoGame?.taskDone(c.id, res.status, c.title, () => openConv(c));
+  if (res.budgetExceeded) {
+    showToast(`비용 상한($${budgetUsd})에 도달해 이번 작업을 멈췄습니다 — 이어서 하려면 다시 요청하세요`, null, 'warn');
+  }
 
   if (res.sessionId) c.sessionId = res.sessionId;
   c.msgs.push({ role: 'assistant', text: finalText });
@@ -1659,6 +1759,48 @@ function appendTurnSummary(box, res, summary) {
     `${res.status === 'ok' ? '완료' : res.status === 'stopped' ? '중지됨' : '오류'} · ` +
     `${summary.elapsed} · 작업 ${summary.tools}건${cost}`;
   box.tools.prepend(sum);
+}
+
+/** 로컬 파일을 바꿨을 수 있는 턴에 [파일 되돌리기] 버튼을 단다. 외부(구글·슬랙 등) 기록은 대상이 아니다. */
+const FILE_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash'];
+function appendTurnActions(box, c, res) {
+  if (!res.userMessageId || res.status === 'error') return;
+  const touched = FILE_TOOLS.some((t) => res.toolCounts?.[t]);
+  if (!touched) return;
+  const row = document.createElement('div');
+  row.className = 'turn-actions';
+  const btn = document.createElement('button');
+  btn.className = 'turn-act';
+  btn.textContent = '↩ 이 요청 전으로 파일 되돌리기';
+  btn.title = '이 요청이 내 컴퓨터에서 만들거나 고친 파일을 요청 전 상태로 되돌립니다 (구글·슬랙·트렐로 기록은 되돌리지 않음)';
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    const pre = await pb.rewindFiles({ convId: c.id, userMessageId: res.userMessageId, dryRun: true });
+    if (!pre?.canRewind) {
+      showToast('되돌릴 수 없습니다 — ' + (pre?.error || '바뀐 파일이 없거나 세션이 닫혔습니다'), null, 'warn');
+      btn.disabled = false;
+      return;
+    }
+    const files = (pre.filesChanged || []).map((f) => '· ' + String(f).split('/').slice(-2).join('/'));
+    const ok = window.confirm(
+      `아래 ${files.length}개 파일을 이 요청 전 상태로 되돌립니다 (새로 만든 파일은 지워짐).\n\n${files.slice(0, 15).join('\n')}${files.length > 15 ? '\n…' : ''}\n\n진행할까요?`,
+    );
+    if (!ok) {
+      btn.disabled = false;
+      return;
+    }
+    const r2 = await pb.rewindFiles({ convId: c.id, userMessageId: res.userMessageId, dryRun: false });
+    if (r2?.canRewind) {
+      btn.textContent = `↩ 되돌림 완료 (${files.length}개 파일)`;
+      showToast(`파일 ${files.length}개를 요청 전 상태로 되돌렸습니다`);
+      void refreshFiles();
+    } else {
+      showToast('되돌리지 못했습니다 — ' + (r2?.error || '알 수 없는 이유'), null, 'warn');
+      btn.disabled = false;
+    }
+  });
+  row.append(btn);
+  box.tools.append(row);
 }
 
 function fmtTok(n) {
@@ -2495,6 +2637,9 @@ function bind() {
     closeTabMenu();
   });
 
+  el.budgetSelect.addEventListener('change', async () => {
+    budgetUsd = await pb.setBudget(Number(el.budgetSelect.value));
+  });
   el.effortSelect.addEventListener('change', () => {
     void pb.setEffort(el.effortSelect.value);
   });
@@ -2755,6 +2900,42 @@ function bind() {
     }
     if (isActive(convId)) renderWork();
   });
+  pb.onAgentSub(({ convId, parent, kind, id, name, input, text, isError }) => {
+    const r = rt.get(convId);
+    if (!r) return;
+    r.work.lastAt = Date.now();
+    const sc = subCard(r, parent);
+    if (kind === 'tool') {
+      sc.tools++;
+      sc.lines.push({ id, label: TOOL_LABEL[name] || name, arg: toolArg(name, input || {}), state: 'doing' });
+    } else if (kind === 'tool_done') {
+      const ln = sc.lines.find((x) => x.id === id);
+      if (ln) ln.state = isError ? 'err' : 'ok';
+    } else if (kind === 'text' && !sc.summary) {
+      sc.summary = String(text).replace(/\s+/g, ' ').slice(0, 140);
+    }
+    renderSubCard(sc);
+    if (isActive(convId)) scrollDown();
+  });
+  pb.onAgentTask(({ convId, subtype, toolUseId, description, subagentType, summary, status, tokens, toolUses, ms, patch }) => {
+    const r = rt.get(convId);
+    if (!r || !toolUseId) return;
+    const sc = subCard(r, toolUseId);
+    if (description && !sc.desc) sc.desc = description;
+    if (subagentType && !sc.type) sc.type = subagentType;
+    if (summary) sc.summary = String(summary).replace(/\s+/g, ' ').slice(0, 220);
+    if (tokens) sc.tokens = tokens;
+    if (toolUses && toolUses > sc.tools) sc.tools = toolUses;
+    if (ms) sc.ms = ms;
+    if (subtype === 'task_notification' && status) {
+      sc.status = status;
+      sc.ms = sc.ms || Date.now() - sc.startedAt;
+      if (sc.el) sc.el.open = false; // 끝난 카드는 접어 둔다
+    } else if (subtype === 'task_updated' && patch?.status && patch.status !== 'running') {
+      sc.status = patch.status;
+    }
+    renderSubCard(sc);
+  });
   pb.onAgentToolProgress(({ convId, id, sec }) => {
     const r = rt.get(convId);
     if (!r) return;
@@ -2825,10 +3006,19 @@ function bind() {
 }
 
 async function main() {
+  // preload 없이(미리보기 패널·일반 브라우저) 열리면 메인과 통신할 수 없다 — 오류 대신 안내만 한다.
+  if (!window.pb) {
+    setStatus('앱 안에서만 동작하는 화면입니다', 'err');
+    return;
+  }
   bind();
   loadConvs();
   renderHistory();
 
+  // 목록에서 빠진 예전 모델은 같은 계열 최신으로 옮겨 준다 (기본값으로 튕기지 않게)
+  const MODEL_MIGRATE = { 'claude-fable-5': 'claude-fable-5-1', 'claude-haiku-4-5-20251001': 'claude-haiku-5-5' };
+  const prevModel = localStorage.getItem(MODEL_KEY);
+  if (prevModel && MODEL_MIGRATE[prevModel]) localStorage.setItem(MODEL_KEY, MODEL_MIGRATE[prevModel]);
   const savedModel = localStorage.getItem(MODEL_KEY);
   const hasOption = savedModel && [...el.modelSelect.options].some((o) => o.value === savedModel);
   if (hasOption) el.modelSelect.value = savedModel;
@@ -2837,6 +3027,12 @@ async function main() {
   // 노력(effort)은 메인이 설정 파일에 저장한다 — 시작 때 불러와 표시만 맞춘다
   void pb.getEffort().then((v) => {
     el.effortSelect.value = v || '';
+  });
+  void pb.getBudget().then((v) => {
+    budgetUsd = v || 0;
+    const opt = [...el.budgetSelect.options].some((o) => Number(o.value) === budgetUsd);
+    if (!opt && budgetUsd > 0) el.budgetSelect.append(new Option(`$${budgetUsd}`, String(budgetUsd)));
+    el.budgetSelect.value = String(budgetUsd);
   });
 
   if (localStorage.getItem(PREVIEW_OFF_KEY) === '1') previewOff = true;

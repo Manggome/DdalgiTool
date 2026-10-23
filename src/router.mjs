@@ -10,7 +10,7 @@ import { flog } from './config.mjs';
  * 실패·타임아웃 시에는 조용히 건너뛴다 — 라우터가 턴을 막는 일은 없어야 한다.
  */
 
-const ROUTER_MODEL = 'claude-haiku-4-5-20251001';
+const ROUTER_MODEL = 'claude-haiku-5-5';
 const TIMEOUT_MS = 12000;
 
 const SYSTEM = [
@@ -21,6 +21,22 @@ const SYSTEM = [
   '"confidence":0~1}',
   '설명 없이 JSON 만. 단순 대화·질문이면 sources:[] , skill:"none".',
 ].join('\n');
+
+/** 구조화 출력 스키마 — 형식이 깨져 분류가 버려지는 일을 없앤다. */
+const ROUTE_SCHEMA = {
+  type: 'object',
+  properties: {
+    sources: {
+      type: 'array',
+      items: { type: 'string', enum: ['drive-docs', 'drive-sheets', 'slack', 'trello', 'unity-code', 'git', 'archive', 'local'] },
+    },
+    skill: { type: 'string', enum: ['design-doc', 'data-table', 'balance', 'explore', 'qa', 'archive', 'insight', 'none'] },
+    targets: { type: 'array', items: { type: 'string' }, maxItems: 3 },
+    confidence: { type: 'number', minimum: 0, maximum: 1 },
+  },
+  required: ['sources', 'skill', 'targets', 'confidence'],
+  additionalProperties: false,
+};
 
 export async function routeRequest(workDir, userPrompt) {
   const catPath = path.join(workDir, '.ddalgi', 'index', 'catalog.md');
@@ -41,28 +57,38 @@ export async function routeRequest(workDir, userPrompt) {
         cwd: workDir,
         model: ROUTER_MODEL,
         systemPrompt: SYSTEM,
-        allowedTools: [],
-        disallowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'Task', 'TodoWrite'],
+        // 내장 도구는 전부 끈다. (allowedTools: [] 는 구조화 출력용 StructuredOutput 도구까지 막아 쓰지 않는다)
+        tools: [],
         maxTurns: 1,
+        outputFormat: { type: 'json_schema', schema: ROUTE_SCHEMA },
+        effort: 'low', // 분류는 깊게 생각할 일이 아니다 — 빠르게
         abortController: ac,
       },
     });
     let out = '';
+    let structured = null;
     for await (const m of stream) {
       if (m.type === 'assistant') {
         for (const b of m.message.content ?? []) if (b.type === 'text') out += b.text;
       } else if (m.type === 'result') {
-        if (m.subtype === 'success' && m.result) out = m.result;
+        if (m.subtype === 'success') {
+          if (m.structured_output && typeof m.structured_output === 'object') structured = m.structured_output;
+          else if (m.result) out = m.result;
+        }
         break;
       }
     }
     clearTimeout(timer);
-    const jm = /\{[\s\S]*\}/.exec(out);
-    if (!jm) return null;
-    const r = JSON.parse(jm[0]);
+    let r = structured;
+    if (!r) {
+      // 구조화 출력이 비어 오면 본문에서 JSON 을 한 번 더 찾아본다
+      const jm = /\{[\s\S]*\}/.exec(out);
+      if (!jm) return null;
+      r = JSON.parse(jm[0]);
+    }
     if (!Array.isArray(r.sources)) return null;
     r.ms = Date.now() - started;
-    flog(`라우터(${r.ms}ms): ${JSON.stringify({ s: r.sources, k: r.skill, c: r.confidence })}`);
+    flog(`라우터(${r.ms}ms${structured ? ', 구조화' : ''}): ${JSON.stringify({ s: r.sources, k: r.skill, c: r.confidence })}`);
     return r;
   } catch (e) {
     clearTimeout(timer);

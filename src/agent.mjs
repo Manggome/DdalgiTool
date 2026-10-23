@@ -1,4 +1,5 @@
 import { query, createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { loadProject, docsFolderIds, sheetsFolderIds, unityProjects } from './project.mjs';
 import * as g from './connectors/google.mjs';
@@ -52,6 +53,25 @@ const docUrl = (id) => `https://docs.google.com/document/d/${id}/edit`;
 const sheetUrl = (id) => `https://docs.google.com/spreadsheets/d/${id}/edit`;
 const slidesUrl = (id) => `https://docs.google.com/presentation/d/${id}/edit`;
 const errText = (e) => ({ content: [{ type: 'text', text: '오류: ' + e.message }], isError: true });
+
+/** 노력(effort) 미지원 모델 — 엔진 supportedModels 실측 기준 Haiku 4.5 만 해당 (Haiku 5.5 는 지원). */
+const NO_EFFORT_MODELS = [/^claude-haiku-4-5/];
+export function supportsEffort(model) {
+  return !NO_EFFORT_MODELS.some((re) => re.test(model || ''));
+}
+
+/** 예비 모델 — 고른 모델이 과부하·장애·미지원이면 순서대로 이어서 진행한다(다음 질문 때 원래 모델을 다시 시도). */
+const FALLBACK_MODELS = {
+  'claude-fable-5-1': 'claude-opus-5-5,claude-sonnet-5-5',
+  'claude-opus-5-5': 'claude-opus-5,claude-sonnet-5-5',
+  'claude-opus-5': 'claude-sonnet-5-5',
+  'claude-sonnet-5-5': 'claude-sonnet-5',
+  'claude-sonnet-5': 'claude-sonnet-5-5',
+  'claude-haiku-5-5': 'claude-sonnet-5-5',
+};
+export function fallbackFor(model) {
+  return FALLBACK_MODELS[model] || '';
+}
 
 /** 쓰기 도구 공통 래퍼 — 앱 승인(권한 모드와 무관하게 항상) 후에만 실행. */
 async function approvedWrite(title, summary, run) {
@@ -908,12 +928,17 @@ export class WarmSession {
   liveSessionId = '';
   active = null;
   lastRateLimit;
+  /** 대화 세션 ID → 직전 누적 비용·토큰 (이번 질문분 계산용). 세션을 다시 열어도 같은 객체라 유지된다. */
+  totals = new Map();
+  /** 앱 재시작 후 이어 여는 세션 — 직전 누적값을 몰라 첫 결과는 비율로 나눠 센다. */
+  resumedUnknown = '';
 
   base(o) {
     return JSON.stringify([
       o.workDir,
       o.model,
       o.effort || '',
+      o.maxBudgetUsd || 0,
       o.knowledgeDir,
       o.skillsDir,
       o.permissionMode,
@@ -933,14 +958,25 @@ export class WarmSession {
     this.input = input;
     this.baseSig = this.base(o);
     this.liveSessionId = o.sessionId ?? '';
+    this.resumedUnknown = o.sessionId && !this.totals.has(o.sessionId) ? o.sessionId : '';
 
     const q = query({
       prompt: input,
       options: {
         cwd: o.workDir,
         model: o.model || 'claude-sonnet-5-5',
-        // 노력(effort): 비우면 모델 기본값. Haiku 4.5 는 effort 미지원이라 보내지 않는다.
-        ...(o.effort && !/haiku/.test(o.model || '') ? { effort: o.effort } : {}),
+        // 노력(effort): 비우면 모델 기본값. 미지원 모델(Haiku 4.5)에는 보내지 않는다.
+        ...(o.effort && supportsEffort(o.model) ? { effort: o.effort } : {}),
+        // 생각 요약 표시 — 최신 모델은 기본이 '숨김'이라 생각 중 칸이 비어 보인다
+        ...(supportsEffort(o.model) ? { thinking: { type: 'adaptive', display: 'summarized' } } : {}),
+        // 서브 에이전트가 ~30초마다 "지금 무엇을 하는지" 한 줄 요약을 보낸다 (task_progress.summary)
+        agentProgressSummaries: true,
+        // 고른 모델이 안 되면 끊기지 않고 예비 모델로 이어서 진행
+        ...(fallbackFor(o.model) ? { fallbackModel: fallbackFor(o.model) } : {}),
+        // 비용 상한(설정에서 켠 경우) — 넘으면 작업을 멈추고 알린다
+        ...(o.maxBudgetUsd > 0 ? { maxBudgetUsd: o.maxBudgetUsd } : {}),
+        // 로컬 파일 체크포인트 — 질문 시점으로 내 컴퓨터 파일을 되돌릴 수 있게 (구글·슬랙 등 외부 기록은 대상 아님)
+        enableFileCheckpointing: true,
         ...(o.additionalDirectories?.length ? { additionalDirectories: o.additionalDirectories } : {}),
         systemPrompt: {
           type: 'preset',
@@ -961,6 +997,15 @@ export class WarmSession {
     try {
       for await (const message of q) {
         const t = this.active;
+        // 서브 에이전트 안쪽 메시지(parent_tool_use_id 있음)는 메인 대화와 섞지 않고 따로 보낸다
+        if ((message.type === 'assistant' || message.type === 'user') && message.parent_tool_use_id) {
+          if (t) this.forwardSubagent(t, message);
+          continue;
+        }
+        if (message.type === 'system' && /^task_(started|progress|updated|notification)$/.test(message.subtype)) {
+          if (t) t.onTask(message.subtype, message);
+          continue;
+        }
         if (message.type === 'assistant') {
           this.liveSessionId = message.session_id;
           const content = message.message.content;
@@ -1001,11 +1046,20 @@ export class WarmSession {
         } else if (message.type === 'result') {
           this.liveSessionId = message.session_id;
           if (t) {
-            t.usage = message.usage;
-            t.costUsd = message.total_cost_usd;
+            // total_cost_usd·modelUsage 는 이 query() 의 '누적값'이다 — 직전 값을 빼서 이번 질문분만 센다.
+            // (예전엔 누적값을 매번 더해 사용량 비용이 부풀려졌다.) modelUsage 는 서브 에이전트 사용량도 포함한다.
+            const delta = this.takeDelta(message);
+            t.usage = delta.usage;
+            t.costUsd = delta.costUsd;
             t.numTurns = message.num_turns;
             if (message.subtype === 'success') t.text = message.result;
+            if (message.subtype === 'error_max_budget_usd') t.budgetExceeded = true;
             this.settle(t);
+          }
+          // 비용 상한에 걸린 세션은 이후 질문을 계속 거부한다 — 닫아 두고, 다음 질문 때 같은 대화를 새로 이어 연다
+          if (message.subtype === 'error_max_budget_usd') {
+            void this.reset();
+            break;
           }
         }
       }
@@ -1036,7 +1090,83 @@ export class WarmSession {
       rateLimit: t.rateLimit ?? this.lastRateLimit,
       numTurns: t.numTurns,
       toolCounts: t.toolCounts,
+      userMessageId: t.userMessageId,
+      budgetExceeded: !!t.budgetExceeded,
     });
+  }
+
+  /** 누적 비용·토큰에서 이번 질문분을 계산한다. 같은 대화 세션 ID 의 직전 누적값을 기억해 둔다. */
+  takeDelta(message) {
+    const sid = message.session_id || '';
+    const prev = this.totals.get(sid) ?? { cost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    const cur = { cost: message.total_cost_usd || 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+    const mu = message.modelUsage;
+    if (mu && typeof mu === 'object' && Object.keys(mu).length) {
+      for (const m of Object.values(mu)) {
+        cur.input += m.inputTokens || 0;
+        cur.output += m.outputTokens || 0;
+        cur.cacheRead += m.cacheReadInputTokens || 0;
+        cur.cacheWrite += m.cacheCreationInputTokens || 0;
+      }
+    } else {
+      // modelUsage 가 없는(구형) 결과는 턴 단위 usage 를 그대로 쓴다
+      const u = message.usage || {};
+      Object.assign(cur, {
+        input: prev.input + (u.input_tokens || 0),
+        output: prev.output + (u.output_tokens || 0),
+        cacheRead: prev.cacheRead + (u.cache_read_input_tokens || 0),
+        cacheWrite: prev.cacheWrite + (u.cache_creation_input_tokens || 0),
+      });
+    }
+    // 앱 재시작 후 이어 연 세션의 첫 결과: 이전 대화 누적이 섞여 온다 —
+    // 이번 질문(메인 루프 턴 usage)의 토큰 비율만큼만 비용을 센다.
+    if (this.resumedUnknown && sid === this.resumedUnknown && !this.totals.has(sid)) {
+      this.resumedUnknown = '';
+      this.totals.set(sid, cur);
+      const u = message.usage || {};
+      const turnTok = (u.input_tokens || 0) + (u.output_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+      const cumTok = cur.input + cur.output + cur.cacheRead + cur.cacheWrite;
+      return {
+        costUsd: cumTok > 0 ? cur.cost * Math.min(1, turnTok / cumTok) : 0,
+        usage: { ...u },
+      };
+    }
+    // 누적값이 줄었으면(/clear·크래시 0값 등) 이번 값을 새 기준으로 삼는다
+    const reset = cur.cost < prev.cost || cur.input < prev.input;
+    const base = reset ? { cost: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } : prev;
+    this.totals.set(sid, cur);
+    return {
+      costUsd: Math.max(0, cur.cost - base.cost),
+      usage: {
+        input_tokens: Math.max(0, cur.input - base.input),
+        output_tokens: Math.max(0, cur.output - base.output),
+        cache_read_input_tokens: Math.max(0, cur.cacheRead - base.cacheRead),
+        cache_creation_input_tokens: Math.max(0, cur.cacheWrite - base.cacheWrite),
+        output_tokens_details: message.usage?.output_tokens_details,
+      },
+    };
+  }
+
+  /** 서브 에이전트 안쪽 메시지를 카드용 이벤트로 바꿔 보낸다. */
+  forwardSubagent(t, message) {
+    const parent = message.parent_tool_use_id;
+    const content = message.message?.content;
+    if (!Array.isArray(content)) return;
+    for (const block of content) {
+      if (message.type === 'assistant' && block.type === 'tool_use') {
+        t.onSubagent({ parent, kind: 'tool', id: block.id, name: block.name, input: block.input });
+      } else if (message.type === 'assistant' && block.type === 'text' && block.text?.trim()) {
+        t.onSubagent({ parent, kind: 'text', text: block.text });
+      } else if (message.type === 'user' && block.type === 'tool_result') {
+        t.onSubagent({ parent, kind: 'tool_done', id: block.tool_use_id, isError: block.is_error === true });
+      }
+    }
+  }
+
+  /** 로컬 파일을 해당 질문 시점으로 되돌린다. dryRun 이면 바뀔 파일만 미리 본다. */
+  async rewindFiles(userMessageId, dryRun = false) {
+    if (!this.q?.rewindFiles) return { canRewind: false, error: '이 대화의 세션이 닫혀 있어 되돌릴 수 없습니다.' };
+    return await this.q.rewindFiles(userMessageId, { dryRun });
   }
 
   /** 한 턴 실행. */
@@ -1054,14 +1184,21 @@ export class WarmSession {
         onThinkingTokens: o.onThinkingTokens ?? (() => {}),
         onToolProgress: o.onToolProgress ?? (() => {}),
         onStatus: o.onStatus ?? (() => {}),
+        onSubagent: o.onSubagent ?? (() => {}),
+        onTask: o.onTask ?? (() => {}),
+        userMessageId: null,
         resolve,
         reject,
         text: '',
         toolCounts: {},
         settled: false,
       };
+      // 질문마다 고유 ID — 파일 되돌리기(rewindFiles)의 기준 시점이 된다
+      const uuid = randomUUID();
+      this.active.userMessageId = uuid;
       this.input.push({
         type: 'user',
+        uuid,
         parent_tool_use_id: null,
         message: { role: 'user', content: o.prompt },
       });

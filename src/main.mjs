@@ -76,6 +76,8 @@ let currentModel = 'claude-sonnet-5-5';
 /** 노력(effort) — '' 면 모델 기본값. low/medium/high/xhigh/max. 설정에 저장한다. */
 const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 let currentEffort = EFFORTS.includes(loadConfig()?.effort) ? loadConfig().effort : '';
+/** 대화당 비용 상한(USD) — 0 이면 끔. 한 대화에서 이 금액을 넘으면 작업을 멈춘다. */
+let maxBudgetUsd = Number(loadConfig()?.maxBudgetUsd) > 0 ? Number(loadConfig().maxBudgetUsd) : 0;
 // 권한 모드는 메인이 소유하고 설정 파일에 저장한다. PB_PERMISSION_MODE 로 덮어쓸 수 있다(개발용).
 let permissionMode =
   process.env.PB_PERMISSION_MODE || loadConfig()?.permissionMode || 'bypassPermissions';
@@ -787,6 +789,27 @@ ipcMain.handle('pb:setEffort', (_e, e) => {
 });
 ipcMain.handle('pb:getEffort', () => currentEffort);
 
+ipcMain.handle('pb:getBudget', () => maxBudgetUsd);
+ipcMain.handle('pb:setBudget', (_e, v) => {
+  const n = Number(v);
+  maxBudgetUsd = Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+  saveConfig({ ...(loadConfig() ?? {}), maxBudgetUsd });
+  return maxBudgetUsd;
+});
+
+/** 로컬 파일을 그 질문 시점으로 되돌린다 (구글·슬랙 등 외부 기록은 대상 아님). dryRun 이면 미리보기. */
+ipcMain.handle('pb:rewindFiles', async (_e, { convId, userMessageId, dryRun }) => {
+  const c = convs.get(convId);
+  if (!c || !userMessageId) return { canRewind: false, error: '되돌릴 기준 시점을 찾지 못했습니다.' };
+  try {
+    const r = await c.warm.rewindFiles(userMessageId, !!dryRun);
+    if (!dryRun) flog(`파일 되돌리기 (conv=${convId}): ${r.canRewind ? (r.filesChanged?.length ?? 0) + '개' : '실패 ' + (r.error || '')}`);
+    return r;
+  } catch (e) {
+    return { canRewind: false, error: e.message };
+  }
+});
+
 ipcMain.handle('pb:getTheme', () => ({ theme, resolved: resolvedTheme() }));
 
 ipcMain.handle('pb:setTheme', (_e, t) => {
@@ -1256,6 +1279,7 @@ async function runAsk(convId, prompt, attachments, opts) {
       sessionId: c.sessionId,
       model: currentModel,
       effort: currentEffort,
+      maxBudgetUsd,
       permissionMode,
       canUseTool: permissionMode === 'bypassPermissions' ? undefined : askPermission,
       additionalDirectories: [...new Set(extraDirs)],
@@ -1266,6 +1290,23 @@ async function runAsk(convId, prompt, attachments, opts) {
       onThinkingTokens: (tokens) => ev('pb:agentThinkTokens', { tokens }),
       onToolProgress: (id, name, sec) => ev('pb:agentToolProgress', { id, name, sec }),
       onStatus: (status, result, error) => ev('pb:agentStatus', { status, result, error }),
+      // 서브 에이전트 — 안쪽 도구 사용·텍스트, 시작/진행 요약/완료 신호
+      onSubagent: (e) => ev('pb:agentSub', e),
+      onTask: (subtype, m) =>
+        ev('pb:agentTask', {
+          subtype,
+          taskId: m.task_id,
+          toolUseId: m.tool_use_id,
+          description: m.description,
+          subagentType: m.subagent_type,
+          summary: m.summary,
+          status: m.status,
+          lastTool: m.last_tool_name,
+          tokens: m.usage?.total_tokens,
+          toolUses: m.usage?.tool_uses,
+          ms: m.usage?.duration_ms,
+          patch: m.patch,
+        }),
     });
     c.sessionId = res.sessionId;
     if (res.rateLimit) lastRateLimit = res.rateLimit;
@@ -1277,7 +1318,10 @@ async function runAsk(convId, prompt, attachments, opts) {
       rateLimit: res.rateLimit,
       numTurns: res.numTurns,
       toolCounts: res.toolCounts,
+      userMessageId: res.userMessageId,
+      budgetExceeded: res.budgetExceeded,
     };
+    if (res.budgetExceeded) flog(`비용 상한($${maxBudgetUsd}) 도달 — 작업 멈춤 (conv=${convId})`);
     flog(`턴 종료 (conv=${convId}, ${res.aborted ? '중지' : '정상'}, ${((Date.now() - startedAt) / 1000).toFixed(1)}초)`);
     appendTurnLog({
       ts: new Date().toISOString(),
