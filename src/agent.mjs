@@ -5,6 +5,9 @@ import { loadProject, docsFolderIds, sheetsFolderIds, unityProjects } from './pr
 import * as g from './connectors/google.mjs';
 import * as sl from './connectors/slack.mjs';
 import * as tr from './connectors/trello.mjs';
+import { skillPromptLines } from './skills.mjs';
+import * as un from './unity.mjs';
+import * as dm from './designmap.mjs';
 
 // ---- 연동 도구 (앱 내장 MCP) ----
 
@@ -80,7 +83,9 @@ async function approvedWrite(title, summary, run) {
   return text(await run());
 }
 
-const ddalgiTools = createSdkMcpServer({
+/** 연동 도구 묶음 — 대화(세션)마다 하나씩 만든다. 고르기·유니티·설계 지도 도구가 '어느 대화인지' 알아야 해서. */
+function makeDdalgiTools(sess) {
+  return createSdkMcpServer({
   name: 'ddalgi',
   version: '1.0.0',
   instructions:
@@ -741,8 +746,143 @@ const ddalgiTools = createSdkMcpServer({
         }
       },
     ),
+    ...sessionTools(sess),
   ],
-});
+  });
+}
+
+const defaultUnityPath = () => unityProjects(project())[0]?.path || '';
+
+/** 대화에 묶인 도구 — 고르기 버튼, 유니티 QA 연결, 설계 지도. */
+function sessionTools(sess) {
+  return [
+    tool(
+      'ask_choice',
+      '사용자에게 선택지를 버튼으로 보여 주고 고른 값을 받습니다. 필요한 정보(어떤 문서·카드·시트·기능 등)가 빠졌을 때 ' +
+        '후보를 먼저 찾아 2~8개를 제시하세요. "직접 입력"은 자동으로 붙습니다. 한 번에 질문 하나만.',
+      {
+        question: z.string().describe('짧은 질문 (예: "어떤 기능을 QA할까요?")'),
+        options: z.array(z.string()).min(1).max(8).describe('선택지 문구 (사용자에게 그대로 보임)'),
+      },
+      async ({ question, options }) => {
+        if (!toolCtx.askChoice) return errText(new Error('선택 창을 띄울 수 없습니다 — 질문을 글로 해 주세요.'));
+        const r = await toolCtx.askChoice({ convId: sess.convId, question, options });
+        if (r?.cancelled) return text('사용자가 선택하지 않고 작업을 멈췄습니다. 더 진행하지 마세요.');
+        return text(r?.custom ? `사용자가 직접 입력: ${r.value}` : `사용자 선택: ${r?.value ?? ''}`);
+      },
+    ),
+    tool(
+      'unity_status',
+      '유니티 QA 준비 상태: 프로젝트·에디터 버전·설치 여부·MCP for Unity 패키지·uv·실행 중인지·이 대화에 연결됐는지. 유니티 플레이 테스트 전에 먼저 확인합니다.',
+      { project_path: z.string().optional().describe('유니티 프로젝트 경로 (생략하면 project.yaml 의 첫 프로젝트)') },
+      async ({ project_path }) => {
+        try {
+          const info = await un.unityInfo(project_path || defaultUnityPath());
+          return text({
+            프로젝트: info.projectPath || '(없음)',
+            에디터버전: info.version,
+            에디터설치: !!info.editorPath,
+            MCP패키지: info.mcpPackage.installed ? info.mcpPackage.version || '설치됨' : '없음',
+            uv: !!info.uvx,
+            실행중: info.running,
+            이대화에연결됨: !!sess.unityConfig,
+            준비됨: info.ready,
+            모자란것: info.missing,
+            다음단계: !info.ready ? '모자란 것을 사용자에게 안내' : !info.running ? 'unity_open 으로 열기' : !sess.unityConfig ? 'unity_connect 로 연결' : '유니티 도구(mcp__unity__*) 사용 가능',
+          });
+        } catch (e) {
+          return errText(e);
+        }
+      },
+    ),
+    tool(
+      'unity_open',
+      '[승인 필요] 유니티 에디터로 프로젝트를 엽니다 (이미 열려 있으면 아무것도 안 함). 여는 데 1~3분 걸리니 이후 unity_status 로 확인하세요.',
+      { project_path: z.string().optional() },
+      async ({ project_path }) => {
+        try {
+          const info = await un.unityInfo(project_path || defaultUnityPath());
+          if (info.running) return text('이미 유니티에 열려 있습니다. unity_connect 로 연결하세요.');
+          if (!info.ready) return errText(new Error('준비가 안 됐습니다: ' + info.missing.join(' / ')));
+          return await approvedWrite('유니티 열기', `${info.projectPath} 를 Unity ${info.version} 에디터로 엽니다.`, () => {
+            const pid = un.openUnity(info);
+            return `유니티를 여는 중입니다 (pid ${pid}). 프로젝트 크기에 따라 1~3분 걸립니다 — 잠시 뒤 unity_status 로 실행 여부를 확인하고 unity_connect 하세요.`;
+          });
+        } catch (e) {
+          return errText(e);
+        }
+      },
+    ),
+    tool(
+      'unity_connect',
+      '열려 있는 유니티 에디터를 이 대화에 연결해 유니티 도구(mcp__unity__*: 플레이·스크린샷·콘솔·테스트 등)를 쓸 수 있게 합니다. QA 할 때만 연결하세요 (도구가 많아 평소엔 붙이지 않음).',
+      { project_path: z.string().optional() },
+      async ({ project_path }) => {
+        try {
+          const info = await un.unityInfo(project_path || defaultUnityPath());
+          if (!info.ready) return errText(new Error('준비가 안 됐습니다: ' + info.missing.join(' / ')));
+          if (!info.running) return errText(new Error('유니티가 열려 있지 않습니다 — 사용자 확인 후 unity_open 으로 여세요.'));
+          const cfg = un.unityServerConfig(info);
+          if (!sess.q?.setMcpServers) return errText(new Error('세션이 준비되지 않았습니다. 다시 시도하세요.'));
+          const r = await sess.q.setMcpServers({ ddalgi: sess.ddalgiServer, unity: cfg });
+          const err = r?.errors && Object.keys(r.errors).length ? JSON.stringify(r.errors) : '';
+          if (err) return errText(new Error('연결 실패: ' + err + ' — 유니티 창에서 MCP for Unity 브리지가 켜져 있는지 확인하세요 (Window > MCP for Unity).'));
+          sess.unityConfig = cfg; // 세션이 다시 열려도 유지
+          return text(
+            '유니티에 연결했습니다. 이제 mcp__unity__* 도구를 쓸 수 있습니다.\n' +
+              '- 쓸 수 있음: 플레이/정지, 스크린샷(자동으로 Temp/DdalgiQA 에 저장·이미지로 반환), 콘솔 읽기, 오브젝트 찾기, 씬 구조 보기, 테스트 실행\n' +
+              '- 매번 승인: execute_code(조작용 코드 실행), 메뉴 실행, 씬 불러오기\n' +
+              '- 막힘: 씬·스크립트·에셋·프리팹 수정/저장/삭제\n' +
+              '플레이 전에 사용자에게 "지금 유니티를 QA에 써도 될까요?" 확인하세요 (앱도 대화당 한 번 승인 카드를 띄웁니다).',
+          );
+        } catch (e) {
+          return errText(e);
+        }
+      },
+    ),
+    tool(
+      'design_map_load',
+      '설계 지도를 읽습니다: 저장된 지도(시스템·재화·테이블·기획서·코드 노드와 연결)와 카탈로그·매핑으로 자동 만든 뼈대. 찾기·영향·점검 전에 참고하거나, 지도를 갱신할 때 먼저 부릅니다.',
+      { include_skeleton: z.boolean().optional().describe('자동 뼈대도 함께 (지도 만들기·갱신 때 true)') },
+      async ({ include_skeleton }) => {
+        try {
+          const wd = toolCtx.workDir;
+          if (!wd) return errText(new Error('작업 폴더가 없습니다.'));
+          const map = dm.loadMap(wd);
+          const out = { 저장된지도: map ? { title: map.title, updatedAt: map.updatedAt, nodes: map.nodes, edges: map.edges } : null };
+          if (include_skeleton || !map) out.자동뼈대 = dm.buildSkeleton(wd, project());
+          const s = JSON.stringify(out);
+          return text(s.length > 60000 ? s.slice(0, 60000) + '…(잘림 — 필요한 시스템만 다시 요청)' : s);
+        } catch (e) {
+          return errText(e);
+        }
+      },
+    ),
+    tool(
+      'design_map_save',
+      '설계 지도를 저장합니다 (전체를 덮어씀 — 기존 지도에서 바꿀 부분만 고친 전체를 넘기세요). 노드마다 출처(ref) 필수(시스템·재화 제외), 끝이 없는 연결은 자동 제거, 사용자 메모(note)는 보존. 형식: skills/design-map/references/map-format.md',
+      {
+        map_json: z.string().describe('{"nodes":[...],"edges":[...]} JSON 문자열'),
+        title: z.string().optional(),
+      },
+      async ({ map_json, title }) => {
+        try {
+          const wd = toolCtx.workDir;
+          if (!wd) return errText(new Error('작업 폴더가 없습니다.'));
+          const r = dm.saveMap(wd, JSON.parse(map_json), title);
+          toolCtx.onDesignMapSaved?.();
+          return text(
+            `저장했습니다: 노드 ${r.nodes}개(${Object.entries(r.byType).map(([k, v]) => k + ' ' + v).join(', ')}), 연결 ${r.edges}개, 새로 생김 ${r.added}개` +
+              (r.dropped.length ? `\n출처가 없어 뺀 노드: ${r.dropped.join(', ')}` : '') +
+              '\n사이드바 [🗺 설계 지도]에서 볼 수 있습니다.',
+          );
+        } catch (e) {
+          return errText(e);
+        }
+      },
+    ),
+  ];
+}
 
 /**
  * 프리셋(claude_code) 뒤에 덧붙이는 지침.
@@ -757,19 +897,17 @@ function buildAppendPrompt(knowledgeDir, skillsDir) {
     '',
     '## 스킬 (필요할 때만 읽습니다 — 전부 미리 읽지 마세요)',
     `요청이 아래 업무에 해당하면, 작업 전에 해당 스킬의 SKILL.md 를 Read 로 읽고 그 절차를 따르세요.`,
-    `- 기획서 (읽기/작성/검수):        ${skillsDir}/design-doc/SKILL.md`,
-    `- 데이터 테이블 (수정/검수/생성):  ${skillsDir}/data-table/SKILL.md`,
-    `- 밸런스 검증·시뮬레이션:         ${skillsDir}/balance/SKILL.md`,
-    `- 탐색·영향도·정합성 검사:        ${skillsDir}/explore/SKILL.md`,
-    `- QA 테스트 케이스:              ${skillsDir}/qa/SKILL.md`,
-    `- 아카이빙·의사결정 기록:         ${skillsDir}/archive/SKILL.md`,
-    `- 프로젝트 진단 보고서(기획 문제점·트렌드 개선점): ${skillsDir}/insight/SKILL.md`,
+    '사용자는 스킬 이름을 몰라도 됩니다 — 요청에 맞는 스킬을 스스로 고르세요.',
+    ...skillPromptLines(skillsDir),
     'SKILL.md 가 가리키는 references/ 문서는 그 단계가 실제로 필요할 때만 읽습니다.',
     `도구 전반의 규칙은 ${knowledgeDir}/도구지침.md 에 있습니다. 첫 턴에 한 번 읽어 두세요.`,
     '',
     '## 연동 도구 (mcp__ddalgi__*)',
     '구글 드라이브/독스/시트·슬랙·트렐로는 아래 내장 도구로 접근합니다 (WebFetch 로 열지 마세요):',
     '- 구글 읽기: drive_search → doc_read(독스) / slides_read(슬라이드) / sheet_read(범위 생략=탭 목록) / doc_comments(댓글·답글)',
+    '- 고르기: ask_choice — 빠진 정보는 후보를 찾아 버튼으로 고르게 (ID·파일명을 적게 하지 않기)',
+    '- 설계 지도: design_map_load(먼저 참고) / design_map_save — 시스템·재화·테이블·기획서·코드 연결',
+    '- 유니티 QA: unity_status → unity_open[승인] → unity_connect → mcp__unity__* (플레이·스크린샷·콘솔·테스트만, 수정 계열은 앱이 막음)',
     '- 구글 쓰기[승인]: sheet_update / doc_replace·doc_append·doc_insert_after(서식 상속 삽입)·doc_delete_paragraph·doc_set_style·doc_set_indent·doc_set_bullets / slides_replace·slides_add_slide(슬라이드 수정) / drive_create(새 독스·슬라이드·시트)',
     '- 구글 파일 관리[승인]: drive_copy(사본) / drive_rename(이름 변경) / drive_move(폴더 이동)',
     '- **삭제 금지**: 어떤 파일·카드도 삭제·보관하지 않습니다. 삭제가 필요해 보이면 drive_rename/trello_card_update 로 이름 앞에 `[삭제용] ` 을 붙여 표시만 하고, 실제 삭제는 사람이 합니다.',
@@ -826,6 +964,9 @@ const DDALGI_READ_TOOLS = [
   'mcp__ddalgi__drive_search',
   'mcp__ddalgi__doc_read',
   'mcp__ddalgi__doc_comments',
+  'mcp__ddalgi__ask_choice',
+  'mcp__ddalgi__unity_status',
+  'mcp__ddalgi__design_map_load',
   'mcp__ddalgi__slides_read',
   'mcp__ddalgi__sheet_read',
   'mcp__ddalgi__slack_channels',
@@ -839,6 +980,10 @@ const DDALGI_READ_TOOLS = [
 ];
 /** 연동 쓰기 도구 — 도구 내부에서 항상 앱 승인(권한 모드 무관)을 거치므로 allowedTools 에 넣는다. */
 const DDALGI_WRITE_TOOLS = [
+  // 아래 셋은 도구 안에서 앱 승인·로컬 저장만 하므로 묻지 않고 허용
+  'mcp__ddalgi__unity_open',
+  'mcp__ddalgi__unity_connect',
+  'mcp__ddalgi__design_map_save',
   'mcp__ddalgi__sheet_update',
   'mcp__ddalgi__drive_create',
   'mcp__ddalgi__doc_append',
@@ -932,6 +1077,40 @@ export class WarmSession {
   totals = new Map();
   /** 앱 재시작 후 이어 여는 세션 — 직전 누적값을 몰라 첫 결과는 비율로 나눠 센다. */
   resumedUnknown = '';
+  /** 이 대화의 id·연동 도구 묶음 */
+  convId = '';
+  ddalgiServer = null;
+  /** 이 대화에 연결한 유니티 서버 설정 (세션을 다시 열어도 유지) · 플레이 사용 승인 여부 */
+  unityConfig = null;
+  unityConsent = false;
+
+  /** 유니티 도구 호출 판정 (PreToolUse 훅). 허용 / 승인 후 허용 / 거부. */
+  async unityGate(input) {
+    const out = (decision, reason, updatedInput) => ({
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: decision,
+        permissionDecisionReason: reason,
+        ...(updatedInput ? { updatedInput } : {}),
+      },
+    });
+    const j = un.judgeUnityTool(input.tool_name, input.tool_input);
+    if (j.decision === 'deny') return out('deny', j.reason);
+    if (j.decision === 'ask') {
+      const code = input.tool_input?.code ? '\n\n' + String(input.tool_input.code).slice(0, 1200) : '';
+      const ok = await writeApproval(j.reason.startsWith('유니티 안에서 코드') ? '유니티 코드 실행' : '유니티 조작', j.reason + code);
+      return ok ? out('allow', j.reason) : out('deny', '사용자가 거부했습니다.');
+    }
+    if (j.playConsent && !this.unityConsent) {
+      const ok = await writeApproval(
+        '유니티 플레이 테스트',
+        '이 대화에서 유니티 에디터를 플레이 모드로 실행해 QA 합니다.\n유니티로 직접 작업 중이면 거부하세요 (작업 중인 화면이 플레이 모드로 바뀝니다).',
+      );
+      if (!ok) return out('deny', '사용자가 유니티 사용을 거부했습니다. 플레이 테스트 없이 체크리스트만 만드세요.');
+      this.unityConsent = true;
+    }
+    return out('allow', j.reason, j.updatedInput);
+  }
 
   base(o) {
     return JSON.stringify([
@@ -958,6 +1137,8 @@ export class WarmSession {
     this.input = input;
     this.baseSig = this.base(o);
     this.liveSessionId = o.sessionId ?? '';
+    this.convId = o.convId ?? this.convId ?? '';
+    this.ddalgiServer = makeDdalgiTools(this);
     this.resumedUnknown = o.sessionId && !this.totals.has(o.sessionId) ? o.sessionId : '';
 
     const q = query({
@@ -983,7 +1164,10 @@ export class WarmSession {
           preset: 'claude_code',
           append: buildAppendPrompt(o.knowledgeDir, o.skillsDir),
         },
-        mcpServers: { ddalgi: ddalgiTools },
+        // 대화별 연동 도구 + (이 대화에서 유니티를 연결했으면) 유니티 도구
+        mcpServers: { ddalgi: this.ddalgiServer, ...(this.unityConfig ? { unity: this.unityConfig } : {}) },
+        // 유니티 도구는 권한 모드와 무관하게 QA 안전 범위를 강제한다
+        hooks: { PreToolUse: [{ matcher: 'mcp__unity__.*', hooks: [(input) => this.unityGate(input)] }] },
         ...permissionOptions(o.permissionMode, o.canUseTool),
         ...(o.sessionId ? { resume: o.sessionId } : {}),
       },

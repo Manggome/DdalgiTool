@@ -30,6 +30,7 @@
             <button class="theme-btn" data-theme="dark" title="다크">다크</button>
             <button class="theme-btn" data-theme="light" title="화이트">화이트</button>
           </div>
+          <button id="mapBtn" class="foot-btn">🗺 설계 지도</button>
           <button id="connBtn" class="foot-btn">🔗 연동 설정</button>
           <button id="guideBtn" class="foot-btn">📖 도구 지침 보기</button>
           <button id="folderBtn" class="foot-btn">📁 작업 폴더 열기</button>
@@ -100,11 +101,9 @@
           <div id="messages" class="messages">
             <div id="welcome" class="welcome">
               <div class="welcome-mark">🍓</div>
-              <h1>무엇을 도와드릴까요?</h1>
-              <p class="welcome-sub">
-                기획서·데이터 테이블·밸런스·QA·프로젝트 탐색을 대화로 처리합니다.
-                ⚡ 버튼에서 자주 쓰는 업무 스킬을 바로 부를 수 있습니다.
-              </p>
+              <h1>무엇을 할까요?</h1>
+              <p class="welcome-sub">그냥 말로 해도 돼요. 아래에서 골라 시작할 수도 있어요.</p>
+              <div id="startGrid" class="start-grid"></div>
             </div>
           </div>
 
@@ -153,36 +152,7 @@
               </div>
               <div class="attach-wrap">
                 <button id="skillBtn" class="icon-btn" title="스킬">⚡</button>
-                <div id="skillMenu" class="attach-menu hidden">
-                  <div class="attach-menu-item" data-skill="design-doc">
-                    📄 기획서
-                    <button class="skill-info" data-info="design-doc" title="이 스킬이 하는 일 상세 보기">ℹ</button><div class="skill-sub">기획서 읽기·질문 답변·수정·예외처리 검수·새 기획서 작성</div>
-                  </div>
-                  <div class="attach-menu-item" data-skill="data-table">
-                    📊 데이터 테이블
-                    <button class="skill-info" data-info="data-table" title="이 스킬이 하는 일 상세 보기">ℹ</button><div class="skill-sub">테이블 읽기·수정·오류 검수·기획서 기반 새 테이블 작성</div>
-                  </div>
-                  <div class="attach-menu-item" data-skill="balance">
-                    ⚖️ 밸런스 검증
-                    <button class="skill-info" data-info="balance" title="이 스킬이 하는 일 상세 보기">ℹ</button><div class="skill-sub">테이블·코드 기반 시뮬레이션, 필요 시 HTML 시뮬레이터 제작</div>
-                  </div>
-                  <div class="attach-menu-item" data-skill="explore">
-                    🔎 탐색·정합성
-                    <button class="skill-info" data-info="explore" title="이 스킬이 하는 일 상세 보기">ℹ</button><div class="skill-sub">질문의 답 찾기, 변경 영향도 리스팅, 테이블↔코드 불일치 검사</div>
-                  </div>
-                  <div class="attach-menu-item" data-skill="qa">
-                    ✅ QA 테스트 케이스
-                    <button class="skill-info" data-info="qa" title="이 스킬이 하는 일 상세 보기">ℹ</button><div class="skill-sub">카드·기획서·테이블·코드 기반 QA 케이스 작성과 우선순위 분류</div>
-                  </div>
-                  <div class="attach-menu-item" data-skill="insight">
-                    🩺 프로젝트 진단
-                    <button class="skill-info" data-info="insight" title="이 스킬이 하는 일 상세 보기">ℹ</button><div class="skill-sub">기획 관점 문제점 + 최신 트렌드 기반 개선점 → HTML 보고서</div>
-                  </div>
-                  <div class="attach-menu-item" data-skill="archive">
-                    🗂 아카이빙
-                    <button class="skill-info" data-info="archive" title="이 스킬이 하는 일 상세 보기">ℹ</button><div class="skill-sub">중요 의사결정 기록, 작업 히스토리 정리</div>
-                  </div>
-                </div>
+                <div id="skillMenu" class="attach-menu hidden"></div>
               </div>
               <textarea id="input" rows="1" placeholder="기획 업무를 자연어로 요청하세요…  (이미지 붙여넣기·드래그 첨부 가능)"></textarea>
               <button id="stopBtn" class="send stop hidden" title="중지">■</button>

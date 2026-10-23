@@ -2507,3 +2507,45 @@ mark.find-hit.current {
 }
 .dino-done.fail { background: rgba(248, 113, 113, 0.15); }
 .dino-done.hidden { display: none; }
+
+
+/* ---------- 시작 버튼 (빈 대화 화면) ---------- */
+.start-grid { margin: 22px auto 0; max-width: 680px; display: flex; flex-direction: column; gap: 12px; text-align: left; }
+.start-row { display: flex; gap: 12px; align-items: flex-start; }
+.start-group { flex: none; width: 52px; padding-top: 8px; font-size: 12px; font-weight: 700; color: var(--text-faint); }
+.start-btns { flex: 1; display: flex; flex-wrap: wrap; gap: 8px; }
+.start-btn {
+  font: inherit; font-size: 13.5px; color: var(--text); cursor: pointer;
+  background: var(--bg-2); border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  border-radius: 12px; padding: 9px 13px; display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px;
+}
+.start-btn:hover { border-color: var(--accent); }
+.start-need { font-size: 11px; color: #f59e0b; }
+.start-chip {
+  font: inherit; font-size: 12px; cursor: pointer; color: var(--text-dim);
+  background: transparent; border: 1px dashed var(--border, rgba(255, 255, 255, 0.18));
+  border-radius: 999px; padding: 6px 11px; align-self: center;
+}
+.start-chip.ok { color: var(--accent); border-style: solid; }
+
+/* ⚡ 메뉴 그룹 제목·필요 연동 */
+.skill-group { padding: 8px 12px 2px; font-size: 11px; font-weight: 700; color: var(--text-faint); letter-spacing: 0.04em; }
+.skill-need { font-size: 11px; color: #f59e0b; margin-top: 2px; }
+
+/* ---------- 고르기 카드 (ask_choice) ---------- */
+.choice-card {
+  margin: 10px 0; padding: 12px 14px; border-radius: 12px;
+  background: var(--bg-2); border: 1px solid var(--accent);
+}
+.choice-card.answered { border-color: var(--border, rgba(255, 255, 255, 0.1)); opacity: 0.8; }
+.choice-q { font-weight: 600; color: var(--text); margin-bottom: 10px; }
+.choice-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.choice-btn {
+  font: inherit; font-size: 13px; color: var(--text); cursor: pointer;
+  background: var(--bg-3); border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 10px; padding: 7px 12px;
+}
+.choice-btn:hover:not(:disabled) { border-color: var(--accent); }
+.choice-btn.ghost { background: transparent; color: var(--text-dim); }
+.choice-btn:disabled { cursor: default; }
+.choice-a { margin-top: 8px; font-size: 12.5px; color: var(--accent); }

@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('alertApi', {
   onItems: (cb) => ipcRenderer.on('alert:items', (_e, items) => cb(items)),
   decide: (id, decision) => ipcRenderer.send('alert:decide', { id, decision }),
+  choose: (id, value) => ipcRenderer.send('alert:choose', { id, value }),
   dismiss: (key) => ipcRenderer.send('alert:dismiss', { key }),
   open: (key) => ipcRenderer.send('alert:open', { key }),
   resize: (height) => ipcRenderer.send('alert:resize', height),

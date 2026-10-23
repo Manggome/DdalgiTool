@@ -19,6 +19,8 @@ const el = {
   queueBar: $('#queueBar'),
   skillBtn: $('#skillBtn'),
   skillMenu: $('#skillMenu'),
+  startGrid: $('#startGrid'),
+  mapBtn: $('#mapBtn'),
   folderChangeBtn: $('#folderChangeBtn'),
   panelBtn: $('#panelBtn'),
   work: $('#work'),
@@ -608,6 +610,7 @@ function openConv(c) {
   renderQueue();
   renderHistory();
   scrollDown(true);
+  renderPendingChoices();
 }
 
 function touchConv(userText) {
@@ -1387,71 +1390,225 @@ function showToast(text, onClick, status) {
 // 각 스킬은 앱에 내장된 SKILL.md(진짜 절차서)를 먼저 읽게 하는 짧은 프롬프트만 보낸다.
 // 절차 전문을 여기 두지 않는 이유: 필요할 때만 읽어 토큰을 아끼기 위해서다.
 
-const skillPrompt = (name, title, input) =>
+// ---------- 스킬 (스킬 문서 frontmatter 가 유일한 등록 정보) ----------
+
+/** main 이 skills/<이름>/SKILL.md 에서 읽어 준 목록 — 메뉴·시작 버튼이 여기서 만들어진다. */
+let skillCatalog = [];
+/** 연동 준비 상태 { google, slack, trello, unity:{ready,running,missing} } */
+let readiness = null;
+/** 버튼으로 고른 스킬 — 다음 전송에 실어 보낸다 (노력 자동 설정용) */
+let nextSkill = '';
+const SKILL_GROUP_TITLE = { 쓰기: '쓰기', 확인: '확인', 테스트: '테스트', 정리: '정리' };
+const NEED_LABEL = { google: '구글', slack: '슬랙', trello: '트렐로' };
+
+async function loadSkills() {
+  try {
+    skillCatalog = (await pb.listSkills()) || [];
+  } catch {
+    skillCatalog = [];
+  }
+  renderSkillMenu();
+  renderStartGrid();
+}
+
+async function refreshReadiness() {
+  try {
+    readiness = await pb.skillReadiness();
+  } catch {
+    readiness = null;
+  }
+  renderSkillMenu();
+  renderStartGrid();
+}
+
+/** 연결이 안 된 필수 연동 (유니티는 QA 의 선택 단계라 여기서 막지 않는다). */
+function unmetNeeds(skill) {
+  if (!readiness) return [];
+  return (skill.needs || []).filter((n) => n !== 'unity' && NEED_LABEL[n] && !readiness[n]);
+}
+
+function groupedSkills() {
+  const groups = new Map();
+  for (const s of skillCatalog) {
+    if (!groups.has(s.group)) groups.set(s.group, []);
+    groups.get(s.group).push(s);
+  }
+  return groups;
+}
+
+function renderSkillMenu() {
+  if (!el.skillMenu) return;
+  el.skillMenu.replaceChildren();
+  for (const [group, list] of groupedSkills()) {
+    const h = document.createElement('div');
+    h.className = 'skill-group';
+    h.textContent = SKILL_GROUP_TITLE[group] || group;
+    el.skillMenu.append(h);
+    for (const sk of list) {
+      const item = document.createElement('div');
+      item.className = 'attach-menu-item';
+      item.dataset.skill = sk.name;
+      item.append(`${sk.icon} ${sk.label}`);
+      const info = document.createElement('button');
+      info.className = 'skill-info';
+      info.dataset.info = sk.name;
+      info.title = '이 스킬이 하는 일 상세 보기';
+      info.textContent = 'ℹ';
+      const sub = document.createElement('div');
+      sub.className = 'skill-sub';
+      sub.textContent = sk.summary;
+      item.append(info, sub);
+      const miss = unmetNeeds(sk);
+      if (miss.length) {
+        const w = document.createElement('div');
+        w.className = 'skill-need';
+        w.textContent = miss.map((n) => NEED_LABEL[n]).join('·') + ' 연결 필요';
+        item.append(w);
+      }
+      el.skillMenu.append(item);
+    }
+  }
+}
+
+/** 빈 대화 화면의 "무엇을 할까요?" 시작 버튼 */
+function renderStartGrid() {
+  if (!el.startGrid) return;
+  el.startGrid.replaceChildren();
+  for (const [group, list] of groupedSkills()) {
+    const row = document.createElement('div');
+    row.className = 'start-row';
+    const lab = document.createElement('div');
+    lab.className = 'start-group';
+    lab.textContent = SKILL_GROUP_TITLE[group] || group;
+    const btns = document.createElement('div');
+    btns.className = 'start-btns';
+    for (const sk of list) {
+      const b = document.createElement('button');
+      b.className = 'start-btn';
+      b.dataset.skill = sk.name;
+      b.title = [sk.summary, ...(sk.examples || []).map((x) => '예) ' + x)].join('\n');
+      b.textContent = `${sk.icon} ${sk.label}`;
+      const miss = unmetNeeds(sk);
+      if (miss.length) {
+        const w = document.createElement('span');
+        w.className = 'start-need';
+        w.textContent = miss.map((n) => NEED_LABEL[n]).join('·') + ' 연결 필요';
+        b.append(w);
+      }
+      btns.append(b);
+      if ((sk.needs || []).includes('unity') || sk.name === 'qa') {
+        const u = readiness?.unity;
+        const chip = document.createElement('button');
+        chip.className = 'start-chip' + (u?.ready ? ' ok' : '');
+        chip.dataset.unity = '1';
+        chip.textContent = u?.ready ? (u.running ? '🎮 유니티 테스트 가능 (열려 있음)' : '🎮 유니티 테스트 가능') : '🎮 유니티 테스트 준비 필요';
+        chip.title = u?.ready ? '유니티 에디터에서 직접 플레이 테스트할 수 있어요' : (u?.missing || []).join('\n');
+        btns.append(chip);
+      }
+    }
+    row.append(lab, btns);
+    el.startGrid.append(row);
+  }
+}
+
+const skillPrompt = (sk, input) =>
   [
-    `[스킬: ${title}]`,
+    `[스킬: ${sk.icon} ${sk.label}]`,
     input ? `요청: ${input}` : '',
     '',
-    `먼저 앱 내장 스킬 문서 skills/${name}/SKILL.md 를 Read 로 읽고 그 절차를 따르세요.`,
+    `먼저 앱 내장 스킬 문서 skills/${sk.name}/SKILL.md 를 Read 로 읽고 그 절차를 따르세요.`,
     '(시스템 지침에 스킬 폴더의 절대 경로가 있습니다. references/ 문서는 필요한 단계에서만 읽으세요.)',
-    input ? '' : '요청이 비어 있으니, 이 스킬로 무엇을 할지 한 줄로 물어보고 기다리세요.',
+    input ? '' : '요청이 비어 있으니, 필요한 대상을 ask_choice 로 후보를 보여 주며 하나씩 물어보세요.',
   ]
     .filter(Boolean)
     .join('\n');
 
-const SKILLS = {
-  'design-doc': {
-    ask: '기획서 관련 무엇을 할까요? (예: ○○ 기획서 읽고 질문 답변 / 예외처리 검수 / 새 기획서 작성)',
-    optional: true,
-    prompt: (input) => skillPrompt('design-doc', '기획서', input),
-  },
-  'data-table': {
-    ask: '데이터 테이블 관련 무엇을 할까요? (예: ○○ 시트 오류 검수 / 값 수정 / 새 테이블 작성)',
-    optional: true,
-    prompt: (input) => skillPrompt('data-table', '데이터 테이블', input),
-  },
-  balance: {
-    ask: '무엇을 밸런싱/검증할까요? (예: 5~10레벨 성장 곡선 검증 / 전투 시뮬레이터 제작)',
-    optional: true,
-    prompt: (input) => skillPrompt('balance', '밸런스 검증', input),
-  },
-  explore: {
-    ask: '무엇을 찾거나 검사할까요? (예: ○○ 값 바꾸면 영향받는 곳 / 테이블↔코드 정합성 검사)',
-    optional: true,
-    prompt: (input) => skillPrompt('explore', '탐색·정합성', input),
-  },
-  qa: {
-    ask: '어떤 기능/카드의 QA 케이스를 만들까요?',
-    optional: true,
-    prompt: (input) => skillPrompt('qa', 'QA 테스트 케이스', input),
-  },
-  archive: {
-    ask: '무엇을 아카이빙할까요? (비워 두면 이번 대화의 중요 결정을 정리합니다)',
-    optional: true,
-    prompt: (input) => skillPrompt('archive', '아카이빙', input),
-  },
-  insight: {
-    ask: '어느 부분을 중점 진단할까요? (비워 두면 전방위 — 예: 초반 온보딩 / 경제 밸런스 / 리텐션)',
-    optional: true,
-    prompt: (input) => skillPrompt('insight', '프로젝트 진단', input),
-  },
-};
-
-/** 스킬 실행 — 프롬프트를 만들어 평소 전송 경로로 보낸다. */
-async function runSkill(key) {
-  const skill = SKILLS[key];
-  if (!skill || !workDir) return;
-
+/** 스킬 실행 — 필요한 연동이 없으면 안내, 있으면 한 줄 묻고(비워도 됨) 보낸다. */
+async function runSkill(name) {
+  const sk = skillCatalog.find((s) => s.name === name);
+  if (!sk || !workDir) return;
+  const miss = unmetNeeds(sk);
+  if (miss.length) {
+    const what = miss.map((n) => NEED_LABEL[n]).join('·');
+    if (await confirmDialog(`이 일을 하려면 ${what} 연결이 필요해요. 연동 설정을 열까요?`)) el.connBtn.click();
+    return;
+  }
   let input = '';
-  if (skill.ask) {
-    const answer = await promptDialog(skill.ask);
+  if (sk.ask) {
+    const answer = await promptDialog(sk.ask);
     if (answer === null) return; // 취소
     input = answer || '';
-    if (!input.trim() && !skill.optional) return;
   }
-  el.input.value = skill.prompt(input.trim());
+  nextSkill = sk.name;
+  el.input.value = skillPrompt(sk, input.trim());
   updateSendBtn();
   await doSend();
+}
+
+/** 유니티 준비 상태 상세 (시작 버튼의 🎮 칩) */
+function showUnityReadiness() {
+  const u = readiness?.unity;
+  el.guideModal.classList.remove('hidden');
+  for (const b of document.querySelectorAll('.tab-btn')) b.classList.remove('active');
+  el.guideFoot.textContent = '유니티 QA 는 ✅ QA 하기에서 "유니티에서 직접 테스트"를 고르면 진행됩니다.';
+  el.guideBody.innerHTML = renderMd(
+    u?.ready
+      ? `## 🎮 유니티 테스트 준비 완료\n\n${u.running ? '유니티가 열려 있어요. ' : '유니티가 꺼져 있으면 딸기툴이 (승인 후) 열어 줍니다. '}` +
+          '✅ QA 하기에서 "유니티에서 직접 테스트"를 고르세요.\n\n- 플레이·스크린샷·콘솔 확인·테스트 실행만 하고, 씬·스크립트·에셋은 바꾸지 않습니다.\n- 플레이 전에 한 번 확인을 받습니다 (유니티로 작업 중일 수 있으니까요).'
+      : `## 🎮 유니티 테스트 준비가 필요해요\n\n${(u?.missing || ['상태를 확인하지 못했습니다']).map((m) => '- ' + m).join('\n')}`,
+  );
+}
+
+// ---------- 고르기 버튼 (ask_choice) ----------
+
+const pendingChoices = new Map(); // id → payload
+
+function renderChoiceCard(p) {
+  if (!currentConv || currentConv.id !== p.convId) return;
+  if (document.querySelector(`.choice-card[data-id="${p.id}"]`)) return;
+  const card = document.createElement('div');
+  card.className = 'choice-card';
+  card.dataset.id = p.id;
+  const q = document.createElement('div');
+  q.className = 'choice-q';
+  q.textContent = p.question;
+  const row = document.createElement('div');
+  row.className = 'choice-row';
+  const done = (label) => {
+    card.classList.add('answered');
+    card.querySelectorAll('button').forEach((b) => (b.disabled = true));
+    const a = document.createElement('div');
+    a.className = 'choice-a';
+    a.textContent = '선택: ' + label;
+    card.append(a);
+  };
+  for (const opt of p.options) {
+    const b = document.createElement('button');
+    b.className = 'choice-btn';
+    b.textContent = opt;
+    b.addEventListener('click', () => {
+      done(opt);
+      void pb.choiceReply({ id: p.id, value: opt });
+    });
+    row.append(b);
+  }
+  const own = document.createElement('button');
+  own.className = 'choice-btn ghost';
+  own.textContent = '✏️ 직접 입력';
+  own.addEventListener('click', async () => {
+    const v = await promptDialog(p.question);
+    if (v === null || !v.trim()) return;
+    done(v.trim());
+    void pb.choiceReply({ id: p.id, value: v.trim(), custom: true });
+  });
+  row.append(own);
+  card.append(q, row);
+  el.messages.append(card);
+  scrollDown();
+}
+
+function renderPendingChoices() {
+  for (const p of pendingChoices.values()) renderChoiceCard(p);
 }
 
 // ---------- 슬래시 명령 ----------
@@ -1639,18 +1796,20 @@ async function doSend() {
   const r = runtime(currentConv.id);
   r.id = currentConv.id;
 
+  const skill = slash ? '' : nextSkill;
+  nextSkill = '';
   if (r.busy) {
     // 작업 중이면 멈추지 않고 뒤에 이어 붙인다
-    r.queue.push({ text, atts, slash });
+    r.queue.push({ text, atts, slash, skill });
     renderQueue();
     renderHistory();
     return;
   }
-  await startTurn(currentConv, r, text, atts, slash);
+  await startTurn(currentConv, r, text, atts, slash, skill);
 }
 
 /** 한 턴을 실제로 실행한다. 끝나면 대기열에 있는 다음 요청을 이어서 돌린다. */
-async function startTurn(c, r, text, atts, slash = false) {
+async function startTurn(c, r, text, atts, slash = false, skill = '') {
   const includeErrors = !slash && previewErrCount > 0 && el.errInclude.checked;
   const at = Date.now();
 
@@ -1669,7 +1828,7 @@ async function startTurn(c, r, text, atts, slash = false) {
 
   let res;
   try {
-    res = await pb.ask(c.id, text, atts, { includeErrors });
+    res = await pb.ask(c.id, text, atts, { includeErrors, skill });
   } catch (e) {
     res = { status: 'error', message: `앱 내부 오류: ${e?.message || e}` };
   }
@@ -1732,7 +1891,7 @@ async function startTurn(c, r, text, atts, slash = false) {
   // 대기열 이어서
   const next = r.queue.shift();
   renderQueue();
-  if (next) await startTurn(c, r, next.text, next.atts, next.slash);
+  if (next) await startTurn(c, r, next.text, next.atts, next.slash, next.skill || '');
 }
 
 /** 대화에 남기는 사고 과정(접힘). */
@@ -2779,6 +2938,47 @@ function bind() {
     void runSkill(item.dataset.skill);
   });
 
+  // 시작 버튼 (빈 대화 화면)
+  el.startGrid?.addEventListener('click', (e) => {
+    if (e.target.closest('[data-unity]')) {
+      showUnityReadiness();
+      return;
+    }
+    const b = e.target.closest('.start-btn');
+    if (b) void runSkill(b.dataset.skill);
+  });
+  // ⚡ 메뉴를 열 때 연동 상태를 다시 본다
+  el.skillBtn.addEventListener('click', () => void refreshReadiness());
+
+  // 🗺 설계 지도 — 오른쪽 패널에 연다
+  el.mapBtn?.addEventListener('click', async () => {
+    const r = await pb.openDesignMap();
+    if (!r?.ok) {
+      showToast('설계 지도를 열 수 없습니다 — ' + (r?.error || ''), null, 'warn');
+      return;
+    }
+    await openPreview(r.rel);
+    if (!r.hasMap) showToast('아직 지도가 없어 문서·테이블 뼈대만 보여요 — 대화창에 "설계 지도 만들어줘"라고 말해 보세요');
+  });
+
+  // 고르기 버튼 (ask_choice)
+  pb.onChoiceAsk((p) => {
+    pendingChoices.set(p.id, p);
+    if (currentConv?.id === p.convId) renderChoiceCard(p);
+    else {
+      const c = conversations.find((x) => x.id === p.convId);
+      showToast(`${c?.title || '다른 작업'} — 선택이 필요해요`, c ? () => openConv(c) : null, 'warn');
+    }
+  });
+  pb.onChoiceClose(({ id }) => {
+    pendingChoices.delete(id);
+    const card = document.querySelector(`.choice-card[data-id="${id}"]`);
+    if (card && !card.classList.contains('answered')) {
+      card.classList.add('answered');
+      card.querySelectorAll('button').forEach((b) => (b.disabled = true));
+    }
+  });
+
   // 작업 폴더 바꾸기
   el.folderChangeBtn.addEventListener('click', async () => {
     if (!(await confirmDialog('다른 작업 폴더로 바꿀까요? 지금 대화는 그대로 남습니다.'))) return;
@@ -3028,6 +3228,7 @@ async function main() {
   void pb.getEffort().then((v) => {
     el.effortSelect.value = v || '';
   });
+  void loadSkills().then(refreshReadiness);
   void pb.getBudget().then((v) => {
     budgetUsd = v || 0;
     const opt = [...el.budgetSelect.options].some((o) => Number(o.value) === budgetUsd);

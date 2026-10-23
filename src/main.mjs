@@ -30,6 +30,9 @@ import { loadProject, saveProjectLinks, unityProjects } from './project.mjs';
 import { syncIndex, indexStatus } from './indexer.mjs';
 import { checkUpdate, downloadUpdate, releaseFolderId, publishToDrive } from './updater.mjs';
 import { routeRequest, routerHint } from './router.mjs';
+import { loadSkillCatalog, findSkill } from './skills.mjs';
+import { unityInfo } from './unity.mjs';
+import * as dm from './designmap.mjs';
 import {
   importClientSecret,
   hasGoogleClient,
@@ -910,7 +913,85 @@ async function openExternalPage(url, where) {
     return { where: 'browser' };
   }
 }
-setToolContext({ openPage: openExternalPage, openExternal: (url) => shell.openExternal(url) });
+setToolContext({
+  openPage: openExternalPage,
+  openExternal: (url) => shell.openExternal(url),
+  askChoice,
+  // 설계 지도가 저장되면 열려 있는 지도 화면을 새로 그린다
+  onDesignMapSaved: () => {
+    if (!workDir) return;
+    dm.writeViewer(workDir, dm.loadMap(workDir), loadProject(workDir) ?? {});
+    if (currentPreviewFile === dm.VIEWER_REL) previewView?.webContents.reload();
+    send('pb:designMapSaved', {});
+  },
+});
+
+// ---- 고르기 버튼 (ask_choice) ----
+// 에이전트가 빠진 정보를 물을 때 후보를 버튼으로 보여 주고, 사용자가 고른 값을 돌려준다.
+const pendingChoices = new Map();
+let choiceSeq = 0;
+
+function askChoice({ convId, question, options }) {
+  const id = 'choice-' + ++choiceSeq;
+  return new Promise((resolve) => {
+    pendingChoices.set(id, { convId, resolve });
+    const payload = { id, convId, question: String(question), options: options.map(String) };
+    send('pb:choiceAsk', payload);
+    // 다른 앱을 보고 있으면 떠 있는 카드로도 묻는다
+    if (win && !win.isFocused()) {
+      pushAlert({ key: `choice:${id}`, kind: 'choice', ...payload });
+      playSound('Tink');
+    }
+  });
+}
+
+function resolveChoice(id, result) {
+  const p = pendingChoices.get(id);
+  if (!p) return;
+  pendingChoices.delete(id);
+  send('pb:choiceClose', { id });
+  dropAlert(`choice:${id}`);
+  p.resolve(result);
+}
+
+function cancelChoices(convId) {
+  for (const [id, p] of pendingChoices) if (p.convId === convId) resolveChoice(id, { cancelled: true });
+}
+
+ipcMain.handle('pb:choiceReply', (_e, { id, value, custom }) => resolveChoice(String(id), { value: String(value ?? ''), custom: !!custom }));
+ipcMain.on('alert:choose', (_e, { id, value }) => resolveChoice(String(id), { value: String(value ?? '') }));
+
+// ---- 스킬 목록·준비 상태 (메뉴·시작 버튼용) ----
+ipcMain.handle('pb:listSkills', () =>
+  loadSkillCatalog(SKILLS_DIR).map(({ path: _p, description: _d, ...s }) => s),
+);
+
+ipcMain.handle('pb:skillReadiness', async () => {
+  const pj = workDir ? (loadProject(workDir) ?? {}) : {};
+  const up = unityProjects(pj)[0]?.path;
+  let unity = { ready: false, running: false, missing: ['유니티 프로젝트 경로가 지정되지 않음 — [🔗 연동 설정]에서 지정하세요'] };
+  if (up) {
+    try {
+      const u = await unityInfo(up);
+      unity = { ready: u.ready, running: u.running, missing: u.missing };
+    } catch (e) {
+      unity = { ready: false, running: false, missing: [e.message] };
+    }
+  }
+  return { google: googleConnected(), slack: !!slackStatus()?.connected, trello: !!trelloStatus()?.connected, unity };
+});
+
+// ---- 설계 지도 열기 (사이드바 🗺) ----
+ipcMain.handle('pb:openDesignMap', () => {
+  if (!workDir) return { ok: false, error: '작업 폴더가 없습니다.' };
+  try {
+    const map = dm.loadMap(workDir);
+    const rel = dm.writeViewer(workDir, map, loadProject(workDir) ?? {});
+    return { ok: true, rel, hasMap: !!map, nodes: map?.nodes?.length ?? 0 };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
 
 // 외부 서비스 쓰기(시트/슬랙/트렐로)는 권한 모드와 무관하게 항상 이 창으로 승인을 받는다.
 setWriteApproval(async (title, summary) => {
@@ -1261,13 +1342,22 @@ async function runAsk(convId, prompt, attachments, opts) {
   c.busy = true;
 
   // 소프트 라우터 — Haiku 가 카탈로그를 보고 소스·스킬 힌트를 앞에 붙인다 (실패 시 그냥 진행)
+  // 스킬: 버튼으로 시작했으면 그 스킬, 아니면 라우터가 고른 스킬(확신 0.6 이상)
+  let turnSkill = opts?.skill || '';
   if (!String(prompt).startsWith('/') && loadConfig()?.router !== false) {
-    const route = await routeRequest(workDir, prompt);
+    const route = await routeRequest(
+      workDir,
+      prompt,
+      loadSkillCatalog(SKILLS_DIR).map((s) => ({ name: s.name, label: s.label, description: s.description })),
+    );
     const hint = routerHint(route);
     if (hint) fullPrompt = hint + fullPrompt;
+    if (!turnSkill && route?.skill && route.skill !== 'none' && (route.confidence ?? 0) >= 0.6) turnSkill = route.skill;
   }
+  // 노력: 사용자가 직접 고른 값이 우선, '기본'이면 스킬이 권하는 값
+  const turnEffort = currentEffort || (turnSkill ? findSkill(SKILLS_DIR, turnSkill)?.effort || '' : '');
   flog(
-    `턴 시작 (conv=${convId}, model=${currentModel}, effort=${currentEffort || '기본'}, mode=${permissionMode}) ` +
+    `턴 시작 (conv=${convId}, model=${currentModel}, effort=${turnEffort || '기본'}${turnSkill ? ', skill=' + turnSkill : ''}, mode=${permissionMode}) ` +
       `프롬프트: ${String(prompt).replace(/\s+/g, ' ').slice(0, 50)}`,
   );
   try {
@@ -1278,8 +1368,9 @@ async function runAsk(convId, prompt, attachments, opts) {
       prompt: fullPrompt,
       sessionId: c.sessionId,
       model: currentModel,
-      effort: currentEffort,
+      effort: turnEffort,
       maxBudgetUsd,
+      convId,
       permissionMode,
       canUseTool: permissionMode === 'bypassPermissions' ? undefined : askPermission,
       additionalDirectories: [...new Set(extraDirs)],
@@ -1394,6 +1485,7 @@ ipcMain.handle('pb:notifyDone', (_e, { title, body, status }) => {
 });
 
 ipcMain.handle('pb:stop', (_e, convId) => {
+  cancelChoices(convId);
   const c = convs.get(convId);
   void c?.warm.interrupt();
 });

@@ -34,6 +34,25 @@ function renderPerm(it) {
   return card;
 }
 
+function renderChoice(it) {
+  const card = el('div', 'card');
+  const head = el('div', 'head');
+  head.append(el('div', 'title', '선택이 필요해요'), el('span', 'badge', '고르기'));
+  card.append(head);
+  card.append(el('div', 'body', it.question));
+  const col = el('div', 'col');
+  for (const opt of it.options || []) {
+    const b = el('button', 'opt', opt);
+    b.addEventListener('click', () => window.alertApi.choose(it.id, opt));
+    col.append(b);
+  }
+  const own = el('button', 'deny', '✏️ 딸기툴에서 직접 입력');
+  own.addEventListener('click', () => window.alertApi.open(it.key));
+  col.append(own);
+  card.append(col);
+  return card;
+}
+
 function renderDone(it) {
   const card = el('div', 'card');
   const head = el('div', 'head');
@@ -55,7 +74,7 @@ function renderDone(it) {
 }
 
 function render(items) {
-  list.replaceChildren(...items.map((it) => (it.kind === 'perm' ? renderPerm(it) : renderDone(it))));
+  list.replaceChildren(...items.map((it) => (it.kind === 'perm' ? renderPerm(it) : it.kind === 'choice' ? renderChoice(it) : renderDone(it))));
   // 창 크기를 내용에 맞춘다 (빈 영역이 다른 앱의 클릭을 가로채지 않게)
   requestAnimationFrame(() => window.alertApi.resize(items.length ? document.body.scrollHeight : 0));
 }
